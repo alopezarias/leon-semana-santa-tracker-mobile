@@ -4,10 +4,12 @@ import rawOverrides from '../../route-overrides.json';
 import type {
   LatLngTuple,
   MatchInfo,
+  ProcessionDetailSheetData,
   Procession,
   QuickFilterKey,
   ProcessionSheetItem,
   ProcessionSheetSortBucket,
+  ProcessionRouteAvailability,
   ProcessionStatus,
   RouteGeometry,
   RouteMarker,
@@ -15,7 +17,7 @@ import type {
   SearchQuery,
   Theme,
 } from '../types/procession';
-import { PROCESSION_MAP_LABELS } from '../types/procession';
+import { PROCESSION_MAP_LABELS, PROCESSION_STATUS_LABELS } from '../types/procession';
 
 interface RawProcession {
   day: string;
@@ -571,6 +573,102 @@ export const getProcessionAccentColor = (procession: Procession, theme: Theme) =
 export const getProcessionSheetSubtitle = (procession: Procession) => procession.organizer || `Sale de ${procession.start}`;
 
 export const getProcessionTimeLabel = (procession: Procession) => `${procession.startTime} · ${procession.endTime}`;
+
+export const sanitizeExternalUrl = (value?: string | null) => {
+  const trimmedValue = value?.trim();
+
+  if (!trimmedValue) {
+    return null;
+  }
+
+  try {
+    const parsedUrl = new URL(trimmedValue);
+    return parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:'
+      ? parsedUrl.toString()
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+const getRouteAvailability = ({
+  officialMapUrl,
+  officialSourceUrl,
+  officialItinerary,
+  hasGeometry,
+}: {
+  officialMapUrl: string | null;
+  officialSourceUrl: string | null;
+  officialItinerary: string | null;
+  hasGeometry: boolean;
+}): ProcessionRouteAvailability => {
+  if (officialMapUrl) {
+    return 'official-map';
+  }
+
+  if (officialItinerary) {
+    return 'official-itinerary';
+  }
+
+  if (officialSourceUrl) {
+    return 'official-source';
+  }
+
+  if (hasGeometry) {
+    return 'tracking-only';
+  }
+
+  return 'unavailable';
+};
+
+const ROUTE_AVAILABILITY_LABELS: Record<ProcessionRouteAvailability, string> = {
+  'official-map': 'Recorrido oficial disponible',
+  'official-itinerary': 'Itinerario oficial disponible',
+  'official-source': 'Fuente oficial disponible',
+  'tracking-only': 'Seguimiento en mapa disponible',
+  unavailable: 'Recorrido no disponible',
+};
+
+const ROUTE_FALLBACK_TEXT: Record<ProcessionRouteAvailability, string> = {
+  'official-map': 'Puedes abrir el recorrido oficial y consultar también el itinerario textual si está disponible.',
+  'official-itinerary': 'Consulta el itinerario oficial textual desde esta ficha.',
+  'official-source': 'No hay mapa oficial enlazado, pero sí una fuente oficial para ampliar información.',
+  'tracking-only': 'No hay recorrido oficial enlazado todavía, aunque el mapa puede mostrar seguimiento estimado.',
+  unavailable: 'Recorrido no disponible por ahora.',
+};
+
+export const getProcessionDetailSheetData = (
+  procession: Procession,
+  currentTime: Date,
+): ProcessionDetailSheetData => {
+  const officialMapUrl = sanitizeExternalUrl(procession.officialMapUrl);
+  const officialSourceUrl = sanitizeExternalUrl(procession.officialSourceUrl);
+  const officialItinerary = procession.officialItinerary?.trim() ? procession.officialItinerary.trim() : null;
+  const routeAvailability = getRouteAvailability({
+    officialMapUrl,
+    officialSourceUrl,
+    officialItinerary,
+    hasGeometry: procession.hasGeometry,
+  });
+
+  return {
+    processionId: procession.id,
+    title: procession.title,
+    organizer: procession.organizer || 'Cofradía pendiente de confirmar',
+    dayLabel: procession.dayLabel,
+    timeLabel: getProcessionTimeLabel(procession),
+    statusLabel: PROCESSION_STATUS_LABELS[getProcessionStatus(procession, currentTime)],
+    startLabel: procession.start?.trim() ? `Sale de ${procession.start}` : 'Salida pendiente de confirmar',
+    description: procession.description?.trim() ? procession.description.trim() : 'Descripción oficial pendiente de publicación.',
+    isTrackable: procession.hasGeometry,
+    officialItinerary,
+    officialMapUrl,
+    officialSourceUrl,
+    routeAvailability,
+    routeAvailabilityLabel: ROUTE_AVAILABILITY_LABELS[routeAvailability],
+    routeFallbackText: ROUTE_FALLBACK_TEXT[routeAvailability],
+  };
+};
 
 export const getDefaultSelectedProcessionId = (items: Procession[], currentTime: Date) => {
   const byPriority = [...items].sort((left, right) => getProcessionTimestamp(left) - getProcessionTimestamp(right));

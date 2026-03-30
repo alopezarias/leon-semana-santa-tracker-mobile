@@ -18,6 +18,7 @@ import {
   transitionHomeUxState,
 } from './lib/home-ux-state';
 import {
+  getProcessionDetailSheetData,
   getQuickFilterDistanceMap,
   getProcessionSheetItems,
   getVisibleProcessions,
@@ -244,6 +245,11 @@ export function AppShell({
     selectedProcessionHasGeometry: selectedProcession?.hasGeometry ?? null,
   }), [homeUxState, selectedProcession]);
 
+  const detailSheetData = useMemo(
+    () => (selectedProcession ? getProcessionDetailSheetData(selectedProcession, currentTime) : null),
+    [currentTime, selectedProcession],
+  );
+
   const selectedProcessionIdValue = homePresentation.selectedProcessionId;
 
   const selectedMapProcession = selectedProcession?.hasGeometry ? selectedProcession : null;
@@ -377,6 +383,20 @@ export function AppShell({
     }));
   };
 
+  const handleViewRoute = () => {
+    if (!detailSheetData) {
+      return;
+    }
+
+    const externalUrl = detailSheetData.officialMapUrl ?? detailSheetData.officialSourceUrl;
+
+    if (!externalUrl || typeof window === 'undefined') {
+      return;
+    }
+
+    window.open(externalUrl, '_blank', 'noopener,noreferrer');
+  };
+
   return (
     <div className={`relative h-screen overflow-hidden ${theme === 'dark' ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-900'}`}>
       <MapViewComponent
@@ -425,6 +445,8 @@ export function AppShell({
         onToggleQuickFilter={handleToggleQuickFilter}
         onResetDiscovery={handleResetDiscovery}
         onSelectProcession={handleSelectProcession}
+        detailSheetData={detailSheetData}
+        onViewRoute={handleViewRoute}
         theme={theme}
         uxMode={homePresentation.uxMode}
         snap={sheetSnap}

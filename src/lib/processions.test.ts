@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   getDefaultSelectedProcessionId,
+  getProcessionDetailSheetData,
   getQuickFilterDistanceMap,
   getProcessionSheetItems,
   getQuickFilterProcessions,
   getVisibleProcessions,
   matchesProcessionSearch,
+  sanitizeExternalUrl,
 } from './processions';
 import type { Procession } from '../types/procession';
 
@@ -163,4 +165,68 @@ test('cerca ordena por distancia cuando hay ubicación', () => {
 
   assert.equal(distanceMap.has('near'), true);
   assert.equal((distanceMap.get('near') ?? Infinity) < (distanceMap.get('far') ?? 0), true);
+});
+
+test('detail sheet prioriza mapa oficial y sanea URLs externas', () => {
+  const detail = getProcessionDetailSheetData(
+    baseProcession({
+      officialMapUrl: 'https://oficial.example/recorrido',
+      officialSourceUrl: 'https://fuente.example/detalle',
+      officialItinerary: 'Salida · Calle Ancha · Plaza Mayor',
+    }),
+    new Date('2026-03-28T19:00:00'),
+  );
+
+  assert.equal(detail.routeAvailability, 'official-map');
+  assert.equal(detail.officialMapUrl, 'https://oficial.example/recorrido');
+  assert.equal(sanitizeExternalUrl('https://oficial.example/recorrido'), 'https://oficial.example/recorrido');
+  assert.equal(sanitizeExternalUrl('javascript:alert(1)'), null);
+});
+
+test('detail sheet cae a itinerario oficial cuando no hay mapa válido', () => {
+  const detail = getProcessionDetailSheetData(
+    baseProcession({
+      officialMapUrl: 'nota-invalida',
+      officialItinerary: 'Salida · Calle Ancha · Plaza Mayor',
+    }),
+    new Date('2026-03-28T19:00:00'),
+  );
+
+  assert.equal(detail.routeAvailability, 'official-itinerary');
+  assert.equal(detail.officialMapUrl, null);
+  assert.match(detail.routeAvailabilityLabel, /itinerario oficial/i);
+  assert.match(detail.officialItinerary ?? '', /calle ancha/i);
+});
+
+test('detail sheet usa la fuente oficial cuando solo queda ese fallback seguro', () => {
+  const detail = getProcessionDetailSheetData(
+    baseProcession({
+      officialSourceUrl: 'https://fuente.example/detalle',
+      officialMapUrl: '',
+      officialItinerary: '',
+    }),
+    new Date('2026-03-28T19:00:00'),
+  );
+
+  assert.equal(detail.routeAvailability, 'official-source');
+  assert.equal(detail.officialSourceUrl, 'https://fuente.example/detalle');
+  assert.match(detail.routeAvailabilityLabel, /fuente oficial/i);
+});
+
+test('detail sheet muestra fallback explícito cuando no hay datos oficiales de recorrido', () => {
+  const detail = getProcessionDetailSheetData(
+    baseProcession({
+      hasGeometry: false,
+      geometry: null,
+      officialMapUrl: '',
+      officialSourceUrl: '',
+      officialItinerary: '',
+      description: '',
+    }),
+    new Date('2026-03-28T19:00:00'),
+  );
+
+  assert.equal(detail.routeAvailability, 'unavailable');
+  assert.match(detail.routeAvailabilityLabel, /no disponible/i);
+  assert.match(detail.description, /descripción oficial pendiente/i);
 });

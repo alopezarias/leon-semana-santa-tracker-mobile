@@ -59,6 +59,7 @@ export interface Procession {
 
 export type ProcessionStatus = 'upcoming' | 'active' | 'finished';
 export type ProcessionSheetSortBucket = 'live-trackable' | 'upcoming-trackable' | 'other-trackable' | 'no-geometry';
+export type ProcessionRouteAvailability = 'official-map' | 'official-itinerary' | 'official-source' | 'tracking-only' | 'unavailable';
 
 export interface ProcessionSheetItem {
   id: string;
@@ -73,6 +74,24 @@ export interface ProcessionSheetItem {
   accentColor: string;
   mapLabel: string;
   distanceMeters?: number;
+}
+
+export interface ProcessionDetailSheetData {
+  processionId: string;
+  title: string;
+  organizer: string;
+  dayLabel: string;
+  timeLabel: string;
+  statusLabel: string;
+  startLabel: string;
+  description: string;
+  isTrackable: boolean;
+  officialItinerary: string | null;
+  officialMapUrl: string | null;
+  officialSourceUrl: string | null;
+  routeAvailability: ProcessionRouteAvailability;
+  routeAvailabilityLabel: string;
+  routeFallbackText: string;
 }
 
 export type HomeUxState =

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import ProcessionSheetItem from './ProcessionSheetItem';
-import type { HomeUxMode, ProcessionSheetItem as ProcessionSheetItemModel, QuickFilterKey, SheetSnap, Theme } from '../types/procession';
+import ProcessionDetailSheet from './ProcessionDetailSheet';
+import type { HomeUxMode, ProcessionDetailSheetData, ProcessionSheetItem as ProcessionSheetItemModel, QuickFilterKey, SheetSnap, Theme } from '../types/procession';
 
 interface AvailableDay {
   date: string;
@@ -21,6 +22,8 @@ interface BottomSheetProps {
   onToggleQuickFilter: (filter: QuickFilterKey) => void;
   onResetDiscovery: () => void;
   onSelectProcession: (processionId: string) => void;
+  detailSheetData?: ProcessionDetailSheetData | null;
+  onViewRoute?: () => void;
   theme: Theme;
   uxMode: HomeUxMode;
   snap: SheetSnap;
@@ -80,6 +83,8 @@ export default function BottomSheet({
   onToggleQuickFilter,
   onResetDiscovery,
   onSelectProcession,
+  detailSheetData,
+  onViewRoute,
   theme,
   uxMode,
   snap,
@@ -172,7 +177,7 @@ export default function BottomSheet({
           </span>
         </button>
 
-        {snap !== 'collapsed' && availableDays.length > 0 ? (
+        {uxMode !== 'DETAIL' && snap !== 'collapsed' && availableDays.length > 0 ? (
           <>
             <div className="hide-scrollbar -mx-1 mb-3 flex gap-2 overflow-x-auto px-1 pb-1">
               {availableDays.map((day) => {
@@ -232,7 +237,13 @@ export default function BottomSheet({
         ) : null}
 
         <div className="hide-scrollbar flex-1 space-y-3 overflow-y-auto pr-1">
-          {items.length ? items.map((item) => (
+          {uxMode === 'DETAIL' && detailSheetData ? (
+            <ProcessionDetailSheet
+              detail={detailSheetData}
+              theme={theme}
+              onViewRoute={onViewRoute}
+            />
+          ) : items.length ? items.map((item) => (
             <ProcessionSheetItem
               key={item.id}
               item={item}

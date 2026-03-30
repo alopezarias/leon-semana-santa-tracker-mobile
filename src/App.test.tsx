@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, mock, test } from 'node:test';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { JSDOM } from 'jsdom';
-import type { HomePresentation, Procession, ProcessionSheetItem as ProcessionSheetItemModel, QuickFilterKey, SearchQuery } from './types/procession';
+import type { HomePresentation, Procession, ProcessionDetailSheetData, ProcessionSheetItem as ProcessionSheetItemModel, QuickFilterKey, SearchQuery } from './types/procession';
 
 let dom: JSDOM;
 let AppShell: typeof import('./App').AppShell;
@@ -114,6 +114,8 @@ function MockBottomSheet({
   uxMode,
   onRequestSnap,
   onSelectProcession,
+  detailSheetData,
+  onViewRoute,
 }: {
   items: ProcessionSheetItemModel[];
   availableDays: Array<{ date: string; shortLabel: string }>;
@@ -128,6 +130,8 @@ function MockBottomSheet({
   uxMode: 'IDLE' | 'LIST' | 'SELECTED' | 'DETAIL';
   onRequestSnap: (snap: 'collapsed' | 'mid' | 'expanded') => void;
   onSelectProcession: (processionId: string) => void;
+  detailSheetData?: ProcessionDetailSheetData | null;
+  onViewRoute?: () => void;
 }) {
   return (
     <section aria-label="Panel de procesiones">
@@ -161,7 +165,20 @@ function MockBottomSheet({
       {searchQuery ? <div data-testid="sheet-search-query">{searchQuery}</div> : null}
       {quickFilterMessage ? <div data-testid="sheet-filter-message">{quickFilterMessage}</div> : null}
       {(searchQuery || quickFilter) ? <button type="button" onClick={onResetDiscovery}>Reset discovery</button> : null}
-      {items.map((item) => (
+      {uxMode === 'DETAIL' && detailSheetData ? (
+        <>
+          <div data-testid="sheet-detail-title">{detailSheetData.title}</div>
+          <div data-testid="sheet-detail-route-availability">{detailSheetData.routeAvailability}</div>
+          <div data-testid="sheet-detail-itinerary">{detailSheetData.officialItinerary ?? 'none'}</div>
+          <button
+            type="button"
+            onClick={() => onViewRoute?.()}
+            disabled={detailSheetData.routeAvailability === 'unavailable' || detailSheetData.routeAvailability === 'tracking-only'}
+          >
+            Ver recorrido
+          </button>
+        </>
+      ) : items.map((item) => (
         <button
           key={item.id}
           type="button"
@@ -540,6 +557,91 @@ test('si búsqueda invalida la selección cae a list manteniendo el contexto de 
   assert.equal(view.getByTestId('map-display-mode').textContent, 'day');
   assert.equal(view.queryByTestId('sheet-item-perdon'), null);
   assert.equal(view.getByTestId('sheet-item-nazareno').getAttribute('data-selected'), 'false');
+});
+
+test('detail renderiza la ficha seleccionada sin mezclarla con la lista', () => {
+  const view = render(
+    <AppShell
+      initialTime={initialTime}
+      processionsData={[
+        baseProcession({ id: 'trackable-1', title: 'Trackable 1', officialItinerary: 'Salida · Calle Ancha' }),
+        baseProcession({ id: 'trackable-2', title: 'Trackable 2', startTime: '22:00', endTime: '23:30' }),
+      ]}
+      MapViewComponent={MockMapView as never}
+      HomeTopBarComponent={MockHomeTopBar as never}
+      BottomSheetComponent={MockBottomSheet as never}
+    />,
+  );
+
+  fireEvent.click(view.getByTestId('sheet-item-trackable-1'));
+  fireEvent.click(view.getByRole('button', { name: 'Panel a media altura' }));
+
+  assert.equal(view.getByTestId('sheet-ux-mode').textContent, 'DETAIL');
+  assert.equal(view.getByTestId('sheet-detail-title').textContent, 'Trackable 1');
+  assert.equal(view.queryByTestId('sheet-item-trackable-1'), null);
+  assert.equal(view.getByTestId('sheet-detail-itinerary').textContent, 'Salida · Calle Ancha');
+});
+
+test('ver recorrido abre URL oficial válida con precedencia segura', () => {
+  const openSpy = mock.fn(() => null);
+  Object.defineProperty(globalThis.window, 'open', { configurable: true, value: openSpy });
+
+  const view = render(
+    <AppShell
+      initialTime={initialTime}
+      processionsData={[
+        baseProcession({
+          id: 'trackable-1',
+          title: 'Trackable 1',
+          officialMapUrl: 'https://oficial.example/mapa',
+          officialSourceUrl: 'https://oficial.example/fuente',
+          officialItinerary: 'Salida · Calle Ancha',
+        }),
+      ]}
+      MapViewComponent={MockMapView as never}
+      HomeTopBarComponent={MockHomeTopBar as never}
+      BottomSheetComponent={MockBottomSheet as never}
+    />,
+  );
+
+  fireEvent.click(view.getByTestId('sheet-item-trackable-1'));
+  fireEvent.click(view.getByRole('button', { name: 'Panel a media altura' }));
+  fireEvent.click(view.getByRole('button', { name: 'Ver recorrido' }));
+
+  assert.equal(openSpy.mock.callCount(), 1);
+  assert.deepEqual(openSpy.mock.calls[0].arguments, ['https://oficial.example/mapa', '_blank', 'noopener,noreferrer']);
+  assert.equal(view.getByTestId('map-selected-procession-id').textContent, 'trackable-1');
+});
+
+test('ver recorrido cae a la fuente oficial si el mapa no es válido', () => {
+  const openSpy = mock.fn(() => null);
+  Object.defineProperty(globalThis.window, 'open', { configurable: true, value: openSpy });
+
+  const view = render(
+    <AppShell
+      initialTime={initialTime}
+      processionsData={[
+        baseProcession({
+          id: 'trackable-1',
+          title: 'Trackable 1',
+          officialMapUrl: 'javascript:alert(1)',
+          officialSourceUrl: 'https://oficial.example/fuente',
+          officialItinerary: '',
+        }),
+      ]}
+      MapViewComponent={MockMapView as never}
+      HomeTopBarComponent={MockHomeTopBar as never}
+      BottomSheetComponent={MockBottomSheet as never}
+    />,
+  );
+
+  fireEvent.click(view.getByTestId('sheet-item-trackable-1'));
+  fireEvent.click(view.getByRole('button', { name: 'Panel a media altura' }));
+  fireEvent.click(view.getByRole('button', { name: 'Ver recorrido' }));
+
+  assert.equal(openSpy.mock.callCount(), 1);
+  assert.deepEqual(openSpy.mock.calls[0].arguments, ['https://oficial.example/fuente', '_blank', 'noopener,noreferrer']);
+  assert.equal(view.getByTestId('sheet-detail-route-availability').textContent, 'official-source');
 });
 
 test('sin resultados por búsqueda mantiene list para mostrar estado vacío de fase 1', async () => {

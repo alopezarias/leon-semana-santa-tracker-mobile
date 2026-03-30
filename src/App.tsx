@@ -410,6 +410,7 @@ export function AppShell({
         viewportPaddingTop={112}
         viewportPaddingBottom={sheetViewportPadding[sheetSnap]}
         onMapBackgroundTap={handleMapBackgroundTap}
+        onSelectProcession={handleSelectProcession}
       />
 
       <HomeTopBarComponent

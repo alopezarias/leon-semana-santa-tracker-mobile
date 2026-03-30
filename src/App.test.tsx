@@ -78,6 +78,7 @@ function MockMapView({
   locateRequestId,
   viewportPaddingBottom,
   onMapBackgroundTap,
+  onSelectProcession,
 }: {
   processions: Procession[];
   presentation: HomePresentation;
@@ -85,6 +86,7 @@ function MockMapView({
   locateRequestId: number;
   viewportPaddingBottom: number;
   onMapBackgroundTap: () => void;
+  onSelectProcession: (processionId: string) => void;
 }) {
   return (
     <section aria-label="Mapa principal">
@@ -95,6 +97,16 @@ function MockMapView({
       <div data-testid="home-ux-mode">{presentation.uxMode}</div>
       <div data-testid="map-locate-request-id">{locateRequestId}</div>
       <div data-testid="map-padding-bottom">{viewportPaddingBottom}</div>
+      {processions.map((procession) => (
+        <button
+          key={procession.id}
+          type="button"
+          data-testid={`map-route-${procession.id}`}
+          onClick={() => onSelectProcession(procession.id)}
+        >
+          Seleccionar {procession.title} en mapa
+        </button>
+      ))}
       <button type="button" onClick={onMapBackgroundTap}>Vaciar selección</button>
     </section>
   );
@@ -395,6 +407,58 @@ test('tocar el fondo del mapa limpia la selección actual', () => {
   assert.equal(view.getByTestId('sheet-item-trackable-2').getAttribute('data-selected'), 'false');
   assert.equal(view.getByTestId('home-ux-mode').textContent, 'LIST');
   assert.equal(view.getByTestId('map-display-mode').textContent, 'day');
+});
+
+test('tocar un recorrido visible en el mapa selecciona la procesión sin crear modo paralelo', () => {
+  const view = render(
+    <AppShell
+      initialTime={initialTime}
+      processionsData={[
+        baseProcession({ id: 'trackable-1', title: 'Trackable 1' }),
+        baseProcession({ id: 'trackable-2', title: 'Trackable 2', startTime: '22:00', endTime: '23:30' }),
+      ]}
+      MapViewComponent={MockMapView as never}
+      HomeTopBarComponent={MockHomeTopBar as never}
+      BottomSheetComponent={MockBottomSheet as never}
+    />,
+  );
+
+  fireEvent.click(view.getByTestId('map-route-trackable-1'));
+
+  assert.equal(view.getByTestId('map-selected-procession').textContent, 'trackable-1');
+  assert.equal(view.getByTestId('map-selected-procession-id').textContent, 'trackable-1');
+  assert.equal(view.getByTestId('home-ux-mode').textContent, 'SELECTED');
+  assert.equal(view.getByTestId('sheet-snap').textContent, 'collapsed');
+  assert.equal(view.getByTestId('sheet-item-trackable-1').getAttribute('data-selected'), 'true');
+});
+
+test('una selección nacida en mapa conserva continuidad hasta detail y se reconcilia con búsqueda', async () => {
+  const view = render(
+    <AppShell
+      initialTime={initialTime}
+      processionsData={[
+        baseProcession({ id: 'nazareno', title: 'Nazareno', organizer: 'Cofradía del Nazareno' }),
+        baseProcession({ id: 'perdon', title: 'Perdón', organizer: 'Cofradía del Perdón', startTime: '22:00', endTime: '23:30' }),
+      ]}
+      MapViewComponent={MockMapView as never}
+      HomeTopBarComponent={MockHomeTopBar as never}
+      BottomSheetComponent={MockBottomSheet as never}
+    />,
+  );
+
+  fireEvent.click(view.getByTestId('map-route-perdon'));
+  fireEvent.click(view.getByRole('button', { name: 'Panel a media altura' }));
+
+  assert.equal(view.getByTestId('home-ux-mode').textContent, 'DETAIL');
+  assert.equal(view.getByTestId('sheet-detail-title').textContent, 'Perdón');
+
+  fireEvent.input(view.getByLabelText('Buscar'), { target: { value: 'nazareno' } });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(view.getByTestId('home-ux-mode').textContent, 'LIST');
+  assert.equal(view.getByTestId('map-display-mode').textContent, 'day');
+  assert.equal(view.getByTestId('map-selected-procession-id').textContent, 'none');
+  assert.equal(view.queryByTestId('sheet-item-perdon'), null);
 });
 
 test('el item compacto elimina el patrón Ver ruta/Ocultar ruta', () => {

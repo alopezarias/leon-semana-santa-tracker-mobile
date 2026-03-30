@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  getEstimatedRouteSegments,
   getDefaultSelectedProcessionId,
   getProcessionDetailSheetData,
   getQuickFilterDistanceMap,
@@ -78,6 +79,61 @@ test('selección por defecto cae a próxima con geometría o null', () => {
 
   assert.equal(upcomingSelection, 'upcoming');
   assert.equal(emptySelection, null);
+});
+
+test('segmenta recorrido activo en hecho y pendiente solo cuando aporta división fiable', () => {
+  const segments = getEstimatedRouteSegments(
+    baseProcession({
+      geometry: {
+        matchedKey: 'segmented',
+        source: 'geometry',
+        path: [[42.59, -5.56], [42.60, -5.57], [42.61, -5.58]],
+        markers: [],
+      },
+    }),
+    new Date('2026-03-28T19:00:00'),
+  );
+
+  assert.notEqual(segments, null);
+  assert.equal((segments?.completed.length ?? 0) > 1, true);
+  assert.equal((segments?.pending.length ?? 0) > 1, true);
+  assert.equal((segments?.progress ?? 0) > 0, true);
+  assert.equal((segments?.progress ?? 0) < 1, true);
+});
+
+test('segmentación cae a null para upcoming, finished o geometría insuficiente', () => {
+  assert.equal(
+    getEstimatedRouteSegments(
+      baseProcession({ id: 'upcoming', startTime: '22:00', endTime: '23:30' }),
+      new Date('2026-03-28T19:00:00'),
+    ),
+    null,
+  );
+
+  assert.equal(
+    getEstimatedRouteSegments(
+      baseProcession({ id: 'finished', startTime: '16:00', endTime: '17:00' }),
+      new Date('2026-03-28T19:00:00'),
+    ),
+    null,
+  );
+
+  assert.equal(
+    getEstimatedRouteSegments(
+      baseProcession({
+        id: 'short-path',
+        geometry: {
+          matchedKey: 'short-path',
+          source: 'geometry',
+          path: [[42.59, -5.56]],
+          markers: [],
+        },
+        hasGeometry: true,
+      }),
+      new Date('2026-03-28T19:00:00'),
+    ),
+    null,
+  );
 });
 
 test('la búsqueda ignora acentos y cubre cofradía y día', () => {

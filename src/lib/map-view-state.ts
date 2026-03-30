@@ -21,11 +21,14 @@ export const getVisibleMapProcessions = ({
   }
 
   if (selectedProcession?.hasGeometry) {
-    return [selectedProcession];
+    return [
+      selectedProcession,
+      ...trackableProcessions.filter((procession) => procession.id !== selectedProcession.id),
+    ];
   }
 
   if (selectedProcessionId) {
-    return [];
+    return trackableProcessions;
   }
 
   return trackableProcessions;

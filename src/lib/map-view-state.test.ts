@@ -49,7 +49,7 @@ test('modo día mantiene visibles todas las procesiones trackable del día', () 
   assert.deepEqual(visible.map((procession) => procession.id), ['day-a', 'day-b']);
 });
 
-test('modo procesión muestra solo la procesión elegida', () => {
+test('modo procesión mantiene la seleccionada primero y el resto como contexto', () => {
   const selectedProcession = baseProcession({ id: 'selected' });
   const visible = getVisibleMapProcessions({
     processions: [
@@ -66,10 +66,10 @@ test('modo procesión muestra solo la procesión elegida', () => {
     selectedProcession,
   });
 
-  assert.deepEqual(visible.map((procession) => procession.id), ['selected']);
+  assert.deepEqual(visible.map((procession) => procession.id), ['selected', 'other-a', 'other-b']);
 });
 
-test('modo procesión oculta el resto cuando la seleccionada no tiene geometría', () => {
+test('modo procesión cae a contexto trackable si la seleccionada no tiene geometría disponible', () => {
   const visible = getVisibleMapProcessions({
     processions: [
       baseProcession({ id: 'other-a' }),
@@ -84,7 +84,7 @@ test('modo procesión oculta el resto cuando la seleccionada no tiene geometría
     selectedProcession: null,
   });
 
-  assert.deepEqual(visible, []);
+  assert.deepEqual(visible.map((procession) => procession.id), ['other-a', 'other-b']);
 });
 
 test('modo free mantiene visibles las procesiones trackable sin selección', () => {

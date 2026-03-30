@@ -19,6 +19,12 @@ import type {
 } from '../types/procession';
 import { PROCESSION_MAP_LABELS, PROCESSION_STATUS_LABELS } from '../types/procession';
 
+export interface EstimatedRouteSegments {
+  completed: LatLngTuple[];
+  pending: LatLngTuple[];
+  progress: number;
+}
+
 interface RawProcession {
   day: string;
   slug: string;
@@ -539,6 +545,80 @@ export const getInterpolatedPosition = (path: LatLngTuple[], progress: number): 
   }
 
   return path[path.length - 1];
+};
+
+export const getEstimatedRouteSegments = (
+  procession: Procession,
+  currentTime: Date,
+): EstimatedRouteSegments | null => {
+  if (!procession.hasGeometry || !procession.geometry || procession.geometry.path.length < 2) {
+    return null;
+  }
+
+  if (getProcessionStatus(procession, currentTime) !== 'active') {
+    return null;
+  }
+
+  const start = new Date(`${procession.date}T${procession.startTime}:00`);
+  let end = new Date(`${procession.date}T${procession.endTime}:00`);
+
+  if (end < start) {
+    end = new Date(end.getTime() + 24 * 60 * 60 * 1000);
+  }
+
+  const totalDurationMs = end.getTime() - start.getTime();
+  if (totalDurationMs <= 0) {
+    return null;
+  }
+
+  const rawProgress = (currentTime.getTime() - start.getTime()) / totalDurationMs;
+  const progress = Math.max(0, Math.min(1, rawProgress));
+
+  if (progress <= 0 || progress >= 1) {
+    return null;
+  }
+
+  const splitPoint = getInterpolatedPosition(procession.geometry.path, progress);
+  if (!splitPoint) {
+    return null;
+  }
+
+  const path = procession.geometry.path;
+  const segmentDistances = path.slice(1).map((point, index) => haversineMeters(path[index], point));
+  const totalDistance = segmentDistances.reduce((sum, value) => sum + value, 0);
+  if (totalDistance <= 0) {
+    return null;
+  }
+
+  const targetDistance = totalDistance * progress;
+  let accumulated = 0;
+  let splitIndex = -1;
+
+  for (let index = 0; index < segmentDistances.length; index += 1) {
+    if ((accumulated + segmentDistances[index]) >= targetDistance) {
+      splitIndex = index;
+      break;
+    }
+
+    accumulated += segmentDistances[index];
+  }
+
+  if (splitIndex < 0 || splitIndex >= path.length - 1) {
+    return null;
+  }
+
+  const completed = [...path.slice(0, splitIndex + 1), splitPoint];
+  const pending = [splitPoint, ...path.slice(splitIndex + 1)];
+
+  if (completed.length < 2 || pending.length < 2) {
+    return null;
+  }
+
+  return {
+    completed,
+    pending,
+    progress,
+  };
 };
 
 const getSheetSortBucket = (procession: Procession, status: ProcessionStatus): ProcessionSheetSortBucket => {

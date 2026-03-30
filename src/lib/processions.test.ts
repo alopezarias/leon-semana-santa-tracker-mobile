@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   getDefaultSelectedProcessionId,
+  getQuickFilterDistanceMap,
   getProcessionSheetItems,
+  getQuickFilterProcessions,
+  getVisibleProcessions,
+  matchesProcessionSearch,
 } from './processions';
 import type { Procession } from '../types/procession';
 
@@ -72,4 +76,91 @@ test('selección por defecto cae a próxima con geometría o null', () => {
 
   assert.equal(upcomingSelection, 'upcoming');
   assert.equal(emptySelection, null);
+});
+
+test('la búsqueda ignora acentos y cubre cofradía y día', () => {
+  const procession = baseProcession({
+    title: 'Procesión del Perdón',
+    organizer: 'Cofradía del Dulce Nombre',
+    dayLabel: 'Jueves Santo',
+  });
+
+  assert.equal(matchesProcessionSearch(procession, 'perdon'), true);
+  assert.equal(matchesProcessionSearch(procession, 'cofradia'), true);
+  assert.equal(matchesProcessionSearch(procession, 'jueves'), true);
+  assert.equal(matchesProcessionSearch(procession, 'inexistente'), false);
+});
+
+test('los filtros rápidos separan activas, próximas y hoy', () => {
+  const items = [
+    baseProcession({ id: 'today-active', date: '2026-03-28', startTime: '18:00', endTime: '20:00' }),
+    baseProcession({ id: 'today-upcoming', date: '2026-03-28', startTime: '22:00', endTime: '23:00' }),
+    baseProcession({ id: 'tomorrow-upcoming', date: '2026-03-29', dayLabel: 'Viernes Santo', startTime: '22:00', endTime: '23:00' }),
+  ];
+
+  assert.deepEqual(getQuickFilterProcessions({
+    items,
+    quickFilter: 'active',
+    currentTime: new Date('2026-03-28T19:00:00'),
+    today: '2026-03-28',
+    userLocation: null,
+  }).items.map((item) => item.id), ['today-active']);
+
+  assert.deepEqual(getQuickFilterProcessions({
+    items,
+    quickFilter: 'upcoming',
+    currentTime: new Date('2026-03-28T19:00:00'),
+    today: '2026-03-28',
+    userLocation: null,
+  }).items.map((item) => item.id), ['today-upcoming', 'tomorrow-upcoming']);
+
+  assert.deepEqual(getQuickFilterProcessions({
+    items,
+    quickFilter: 'today',
+    currentTime: new Date('2026-03-28T19:00:00'),
+    today: '2026-03-28',
+    userLocation: null,
+  }).items.map((item) => item.id), ['today-active', 'today-upcoming']);
+});
+
+test('cerca degrada de forma segura sin ubicación', () => {
+  const items = [baseProcession({ id: 'nearby-1' })];
+
+  const result = getVisibleProcessions({
+    items,
+    query: '',
+    quickFilter: 'nearby',
+    currentTime: new Date('2026-03-28T19:00:00'),
+    today: '2026-03-28',
+    userLocation: null,
+  });
+
+  assert.deepEqual(result.items.map((item) => item.id), ['nearby-1']);
+  assert.equal(result.fallbackReason, 'Activa tu ubicación para ordenar por cercanía.');
+});
+
+test('cerca ordena por distancia cuando hay ubicación', () => {
+  const items = [
+    baseProcession({ id: 'far', geometry: { matchedKey: 'far', source: 'geometry', path: [[42.62, -5.6]], markers: [] }, hasGeometry: true }),
+    baseProcession({ id: 'near', geometry: { matchedKey: 'near', source: 'geometry', path: [[42.6002, -5.5601]], markers: [] }, hasGeometry: true }),
+  ];
+
+  const result = getQuickFilterProcessions({
+    items,
+    quickFilter: 'nearby',
+    currentTime: new Date('2026-03-28T19:00:00'),
+    today: '2026-03-28',
+    userLocation: [42.6, -5.56],
+  });
+
+  assert.deepEqual(result.items.map((item) => item.id), ['near', 'far']);
+
+  const distanceMap = getQuickFilterDistanceMap({
+    items: result.items,
+    quickFilter: 'nearby',
+    userLocation: [42.6, -5.56],
+  });
+
+  assert.equal(distanceMap.has('near'), true);
+  assert.equal((distanceMap.get('near') ?? Infinity) < (distanceMap.get('far') ?? 0), true);
 });

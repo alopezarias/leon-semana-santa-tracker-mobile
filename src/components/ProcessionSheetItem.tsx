@@ -11,6 +11,9 @@ interface ProcessionSheetItemProps {
 
 export default function ProcessionSheetItem({ item, theme, onSelect }: ProcessionSheetItemProps) {
   const isDark = theme === 'dark';
+  const distanceLabel = item.distanceMeters !== undefined
+    ? `A ${Math.max(50, Math.round(item.distanceMeters / 50) * 50)} m`
+    : null;
 
   return (
     <button
@@ -45,11 +48,11 @@ export default function ProcessionSheetItem({ item, theme, onSelect }: Processio
             </span>
           </div>
 
-          <p className="mt-2 line-clamp-2 text-[15px] font-semibold leading-5">{item.title}</p>
-          <div className="mt-1 flex items-center justify-between gap-3">
-            <p className={clsx('line-clamp-1 text-sm', isDark ? 'text-slate-300' : 'text-slate-600')}>
-              {item.subtitle}
-            </p>
+            <p className="mt-2 line-clamp-2 text-[15px] font-semibold leading-5">{item.title}</p>
+            <div className="mt-1 flex items-center justify-between gap-3">
+              <p className={clsx('line-clamp-1 text-sm', isDark ? 'text-slate-300' : 'text-slate-600')}>
+                {distanceLabel ? `${item.subtitle} · ${distanceLabel}` : item.subtitle}
+              </p>
             <span
               className={clsx(
                 'inline-flex min-h-8 shrink-0 items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium',

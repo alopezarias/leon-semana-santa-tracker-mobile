@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import ProcessionSheetItem from './ProcessionSheetItem';
-import type { ProcessionSheetItem as ProcessionSheetItemModel, SheetSnap, Theme } from '../types/procession';
+import type { ProcessionSheetItem as ProcessionSheetItemModel, QuickFilterKey, SheetSnap, Theme } from '../types/procession';
 
 interface AvailableDay {
   date: string;
@@ -14,7 +14,12 @@ interface BottomSheetProps {
   items: ProcessionSheetItemModel[];
   availableDays: AvailableDay[];
   selectedDay: string | null;
+  quickFilter: QuickFilterKey | null;
+  searchQuery: string;
+  quickFilterMessage?: string | null;
   onSelectDay: (date: string) => void;
+  onToggleQuickFilter: (filter: QuickFilterKey) => void;
+  onResetDiscovery: () => void;
   onSelectProcession: (processionId: string) => void;
   theme: Theme;
   snap: SheetSnap;
@@ -28,6 +33,12 @@ const snapRatio: Record<SheetSnap, number> = {
 };
 
 const snapOrder: SheetSnap[] = ['collapsed', 'mid', 'expanded'];
+const QUICK_FILTER_LABELS: Record<QuickFilterKey, string> = {
+  today: 'Hoy',
+  active: 'En curso',
+  upcoming: 'Próximas',
+  nearby: 'Cerca',
+};
 
 const nextSnap = (current: SheetSnap) => snapOrder[Math.min(snapOrder.length - 1, snapOrder.indexOf(current) + 1)];
 
@@ -61,7 +72,12 @@ export default function BottomSheet({
   items,
   availableDays,
   selectedDay,
+  quickFilter,
+  searchQuery,
+  quickFilterMessage,
   onSelectDay,
+  onToggleQuickFilter,
+  onResetDiscovery,
   onSelectProcession,
   theme,
   snap,
@@ -155,30 +171,62 @@ export default function BottomSheet({
         </button>
 
         {snap !== 'collapsed' && availableDays.length > 0 ? (
-          <div className="hide-scrollbar -mx-1 mb-3 flex gap-2 overflow-x-auto px-1 pb-1">
-            {availableDays.map((day) => {
-              const isSelected = selectedDay === day.date;
+          <>
+            <div className="hide-scrollbar -mx-1 mb-3 flex gap-2 overflow-x-auto px-1 pb-1">
+              {availableDays.map((day) => {
+                const isSelected = selectedDay === day.date;
 
-              return (
-                <button
-                  key={day.date}
-                  type="button"
-                  onClick={() => onSelectDay(day.date)}
-                  className={`min-h-12 min-w-[108px] rounded-[20px] px-4 py-3 text-left text-sm transition-[transform,background-color,color] active:scale-[0.98] ${
-                    isSelected
-                      ? 'bg-sky-500 text-white'
-                      : isDark
-                        ? 'bg-white/[0.08] text-slate-200'
-                        : 'bg-slate-100 text-slate-700'
-                  }`}
-                  aria-pressed={isSelected}
-                >
-                  <div className="text-[11px] opacity-80">{day.shortLabel}</div>
-                  <div className="mt-1 font-semibold">{day.count}</div>
-                </button>
-              );
-            })}
-          </div>
+                return (
+                  <button
+                    key={day.date}
+                    type="button"
+                    onClick={() => onSelectDay(day.date)}
+                    className={`min-h-12 min-w-[108px] rounded-[20px] px-4 py-3 text-left text-sm transition-[transform,background-color,color] active:scale-[0.98] ${
+                      isSelected
+                        ? 'bg-sky-500 text-white'
+                        : isDark
+                          ? 'bg-white/[0.08] text-slate-200'
+                          : 'bg-slate-100 text-slate-700'
+                    }`}
+                    aria-pressed={isSelected}
+                  >
+                    <div className="text-[11px] opacity-80">{day.shortLabel}</div>
+                    <div className="mt-1 font-semibold">{day.count}</div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="hide-scrollbar -mx-1 mb-3 flex gap-2 overflow-x-auto px-1 pb-1">
+              {(Object.keys(QUICK_FILTER_LABELS) as QuickFilterKey[]).map((filter) => {
+                const isActive = quickFilter === filter;
+
+                return (
+                  <button
+                    key={filter}
+                    type="button"
+                    onClick={() => onToggleQuickFilter(filter)}
+                    className={`min-h-11 shrink-0 rounded-full px-4 text-sm font-medium transition-[transform,background-color,color,border-color] active:scale-[0.98] ${
+                      isActive
+                        ? 'border border-sky-400 bg-sky-500 text-white'
+                        : isDark
+                          ? 'border border-white/10 bg-white/[0.06] text-slate-200'
+                          : 'border border-slate-200 bg-white text-slate-700'
+                    }`}
+                    aria-pressed={isActive}
+                  >
+                    {QUICK_FILTER_LABELS[filter]}
+                  </button>
+                );
+              })}
+            </div>
+
+            {quickFilterMessage ? (
+              <p className={`mb-3 px-1 text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                {quickFilterMessage}
+              </p>
+            ) : null}
+          </>
         ) : null}
 
         <div className="hide-scrollbar flex-1 space-y-3 overflow-y-auto pr-1">
@@ -191,7 +239,27 @@ export default function BottomSheet({
             />
           )) : (
             <div className={`rounded-[22px] border border-dashed px-4 py-5 text-sm ${isDark ? 'border-white/10 bg-white/[0.05] text-slate-300' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
-              No hay procesiones para este día. El mapa sigue disponible.
+              <p className="font-semibold">
+                {searchQuery || quickFilter
+                  ? 'No hay resultados con la búsqueda o filtros actuales.'
+                  : 'No hay procesiones para este día.'}
+              </p>
+              <p className="mt-2">
+                {searchQuery || quickFilter
+                  ? 'Prueba a limpiar la búsqueda o quitar el filtro activo.'
+                  : 'El mapa sigue disponible mientras cambias de día.'}
+              </p>
+              {(searchQuery || quickFilter) ? (
+                <button
+                  type="button"
+                  onClick={onResetDiscovery}
+                  className={`mt-4 inline-flex min-h-11 items-center rounded-full px-4 text-sm font-medium ${
+                    isDark ? 'bg-white/[0.08] text-white' : 'bg-slate-900 text-white'
+                  }`}
+                >
+                  Limpiar búsqueda y filtros
+                </button>
+              ) : null}
             </div>
           )}
         </div>

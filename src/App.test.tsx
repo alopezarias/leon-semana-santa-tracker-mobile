@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, mock, test } from 'node:test';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { JSDOM } from 'jsdom';
-import type { Procession, ProcessionSheetItem as ProcessionSheetItemModel } from './types/procession';
+import type { Procession, ProcessionSheetItem as ProcessionSheetItemModel, QuickFilterKey, SearchQuery } from './types/procession';
 
 let dom: JSDOM;
 let AppShell: typeof import('./App').AppShell;
@@ -105,7 +105,12 @@ function MockBottomSheet({
   items,
   availableDays,
   selectedDay,
+  quickFilter,
+  searchQuery,
+  quickFilterMessage,
   onSelectDay,
+  onToggleQuickFilter,
+  onResetDiscovery,
   snap,
   setSnap,
   onSelectProcession,
@@ -113,7 +118,12 @@ function MockBottomSheet({
   items: ProcessionSheetItemModel[];
   availableDays: Array<{ date: string; shortLabel: string }>;
   selectedDay: string | null;
+  quickFilter: QuickFilterKey | null;
+  searchQuery: string;
+  quickFilterMessage?: string | null;
   onSelectDay: (day: string) => void;
+  onToggleQuickFilter: (filter: QuickFilterKey) => void;
+  onResetDiscovery: () => void;
   snap: 'collapsed' | 'mid' | 'expanded';
   setSnap: (snap: 'collapsed' | 'mid' | 'expanded') => void;
   onSelectProcession: (processionId: string) => void;
@@ -133,6 +143,20 @@ function MockBottomSheet({
           {day.shortLabel}
         </button>
       ))}
+      {(['today', 'active', 'upcoming', 'nearby'] as QuickFilterKey[]).map((filter) => (
+        <button
+          key={filter}
+          type="button"
+          onClick={() => onToggleQuickFilter(filter)}
+          data-testid={`sheet-filter-${filter}`}
+          data-selected={quickFilter === filter ? 'true' : 'false'}
+        >
+          {filter}
+        </button>
+      ))}
+      {searchQuery ? <div data-testid="sheet-search-query">{searchQuery}</div> : null}
+      {quickFilterMessage ? <div data-testid="sheet-filter-message">{quickFilterMessage}</div> : null}
+      {(searchQuery || quickFilter) ? <button type="button" onClick={onResetDiscovery}>Reset discovery</button> : null}
       {items.map((item) => (
         <button
           key={item.id}
@@ -148,18 +172,54 @@ function MockBottomSheet({
   );
 }
 
+function MockHomeTopBar({
+  searchQuery,
+  resultCount,
+  onSearchChange,
+  onClearSearch,
+  onToggleTheme,
+  onLocateMe,
+}: {
+      theme: 'light' | 'dark';
+      isLocating: boolean;
+      searchQuery: SearchQuery;
+  resultCount: number;
+  onSearchChange: (value: SearchQuery) => void;
+  onClearSearch: () => void;
+  onToggleTheme: () => void;
+  onLocateMe: () => void;
+}) {
+  return (
+    <section aria-label="Barra superior home">
+      <label htmlFor="mock-search">Buscar</label>
+      <input
+        id="mock-search"
+        type="search"
+        value={searchQuery}
+        onChange={(event) => onSearchChange(event.target.value)}
+        onInput={(event) => onSearchChange((event.target as HTMLInputElement).value)}
+      />
+      <div data-testid="topbar-result-count">{resultCount}</div>
+      <button type="button" onClick={onClearSearch}>Limpiar búsqueda</button>
+      <button type="button" onClick={onLocateMe}>Centrar en mi ubicación</button>
+      <button type="button" onClick={onToggleTheme}>Cambiar tema</button>
+    </section>
+  );
+}
+
 test('renderiza la home map-first con mapa, top bar mínima y sheet', () => {
   const view = render(
     <AppShell
       initialTime={initialTime}
       processionsData={[baseProcession()]}
       MapViewComponent={MockMapView as never}
+      HomeTopBarComponent={MockHomeTopBar as never}
       BottomSheetComponent={MockBottomSheet as never}
     />,
   );
 
   assert.equal(view.getByLabelText('Mapa principal').tagName, 'SECTION');
-  assert.equal(view.getByLabelText('Barra superior home').textContent?.includes('León en mapa'), true);
+  assert.equal(view.getByLabelText('Barra superior home').tagName, 'SECTION');
   assert.equal(view.getByLabelText('Panel de procesiones').tagName, 'SECTION');
   assert.equal(view.queryByText(/Ver ruta|Ocultar ruta/i), null);
 });
@@ -173,6 +233,7 @@ test('seleccionar un item trackable sincroniza sheet y mapa', () => {
         baseProcession({ id: 'trackable-2', title: 'Trackable 2', startTime: '22:00', endTime: '23:30' }),
       ]}
       MapViewComponent={MockMapView as never}
+      HomeTopBarComponent={MockHomeTopBar as never}
       BottomSheetComponent={MockBottomSheet as never}
     />,
   );
@@ -202,6 +263,7 @@ test('seleccionar un item sin geometría mantiene selección visual pero no ruta
         }),
       ]}
       MapViewComponent={MockMapView as never}
+      HomeTopBarComponent={MockHomeTopBar as never}
       BottomSheetComponent={MockBottomSheet as never}
     />,
   );
@@ -234,6 +296,7 @@ test('seleccionar un día recoge el panel y muestra todas las procesiones del d�
         baseProcession({ id: 'day-2-b', date: '2026-03-29', dayLabel: 'Viernes Santo', title: 'Día 2 B', startTime: '21:00', endTime: '23:00' }),
       ]}
       MapViewComponent={MockMapView as never}
+      HomeTopBarComponent={MockHomeTopBar as never}
       BottomSheetComponent={MockBottomSheet as never}
     />,
   );
@@ -276,11 +339,12 @@ test('ubicarme dispara un enfoque real de cámara al usuario', () => {
       initialTime={initialTime}
       processionsData={[baseProcession()]}
       MapViewComponent={MockMapView as never}
+      HomeTopBarComponent={MockHomeTopBar as never}
       BottomSheetComponent={MockBottomSheet as never}
     />,
   );
 
-  fireEvent.click(view.getByLabelText('Centrar en mi ubicación'));
+  fireEvent.click(view.getByRole('button', { name: 'Centrar en mi ubicación' }));
 
   assert.equal(getCurrentPosition.mock.callCount(), 1);
   assert.equal(view.getByTestId('map-locate-request-id').textContent, '1');
@@ -297,6 +361,7 @@ test('tocar el fondo del mapa limpia la selección actual', () => {
         baseProcession({ id: 'trackable-2', title: 'Trackable 2', startTime: '22:00', endTime: '23:30' }),
       ]}
       MapViewComponent={MockMapView as never}
+      HomeTopBarComponent={MockHomeTopBar as never}
       BottomSheetComponent={MockBottomSheet as never}
     />,
   );
@@ -334,27 +399,31 @@ test('el item compacto elimina el patrón Ver ruta/Ocultar ruta', () => {
   assert.equal(view.getByRole('button').className.includes('min-h-[88px]'), true);
 });
 
-test('la top bar mínima mantiene solo título y acciones', () => {
+test('la top bar muestra un input real y permite limpiar la búsqueda', () => {
   const view = render(
     <HomeTopBar
-      title="León en mapa"
       theme="dark"
       isLocating={false}
+      searchQuery="Nazareno"
+      resultCount={3}
+      onSearchChange={() => {}}
+      onClearSearch={() => {}}
       onToggleTheme={() => {}}
       onLocateMe={() => {}}
     />,
   );
 
   const topBar = view.getByLabelText('Barra superior home');
-  assert.equal(topBar.textContent?.includes('León en mapa'), true);
-  assert.equal(topBar.textContent?.includes('·'), false);
+  assert.equal(topBar.tagName, 'DIV');
+  assert.equal((view.getByLabelText('Buscar procesión, cofradía o día') as HTMLInputElement).value, 'Nazareno');
+  assert.equal(view.getByLabelText('Limpiar búsqueda').tagName, 'BUTTON');
   assert.equal(view.getByLabelText('Centrar en mi ubicación').tagName, 'BUTTON');
   assert.equal(view.getByLabelText('Cambiar tema').tagName, 'BUTTON');
   assert.equal(view.getByLabelText('Centrar en mi ubicación').className.includes('h-12 w-12'), true);
   assert.equal(view.getByLabelText('Cambiar tema').className.includes('h-12 w-12'), true);
 });
 
-test('el sheet usa un handle táctil amplio y chips de día cómodos', () => {
+test('el sheet usa chips de día y filtros rápidos con reset de estado vacío', () => {
   const view = render(
     <BottomSheet
       items={[
@@ -374,7 +443,12 @@ test('el sheet usa un handle táctil amplio y chips de día cómodos', () => {
       ]}
       availableDays={[{ date: '2026-03-28', label: 'Jueves Santo', shortLabel: 'jue 28 mar', count: 1 }]}
       selectedDay="2026-03-28"
+      quickFilter="today"
+      searchQuery="nazareno"
+      quickFilterMessage="Activa tu ubicación para ordenar por cercanía."
       onSelectDay={() => {}}
+      onToggleQuickFilter={() => {}}
+      onResetDiscovery={() => {}}
       onSelectProcession={() => {}}
       theme="dark"
       snap="mid"
@@ -384,4 +458,84 @@ test('el sheet usa un handle táctil amplio y chips de día cómodos', () => {
 
   assert.equal(view.getByLabelText('Cambiar altura del panel').className.includes('min-h-14'), true);
   assert.equal(view.getByRole('button', { name: /jue 28 mar/i }).className.includes('min-h-12'), true);
+  assert.equal(view.getByRole('button', { name: 'Hoy' }).tagName, 'BUTTON');
+  assert.equal(view.getByText('Activa tu ubicación para ordenar por cercanía.').tagName, 'P');
+});
+
+test('buscar filtra la lista y el mapa sin romper la selección', async () => {
+  const view = render(
+    <AppShell
+      initialTime={initialTime}
+      processionsData={[
+        baseProcession({ id: 'nazareno', title: 'Nazareno', organizer: 'Cofradía del Nazareno' }),
+        baseProcession({ id: 'perdon', title: 'Perdón', organizer: 'Cofradía del Perdón', startTime: '22:00', endTime: '23:30' }),
+      ]}
+      MapViewComponent={MockMapView as never}
+      HomeTopBarComponent={MockHomeTopBar as never}
+      BottomSheetComponent={MockBottomSheet as never}
+    />,
+  );
+
+  fireEvent.input(view.getByLabelText('Buscar'), { target: { value: 'perdon' } });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  fireEvent.click(view.getByTestId('sheet-item-perdon'));
+
+  assert.equal(view.getByTestId('map-procession-count').textContent, '1');
+  assert.equal(view.getByTestId('sheet-item-perdon').getAttribute('data-selected'), 'true');
+  assert.equal(view.getByTestId('map-selected-procession-id').textContent, 'perdon');
+  assert.equal(view.queryByTestId('sheet-item-nazareno'), null);
+  assert.equal(view.getByTestId('topbar-result-count').textContent, '1');
+});
+
+test('el filtro Cerca pide ubicación bajo demanda y si falla no vacía resultados', () => {
+  const getCurrentPosition = mock.fn((_: PositionCallback, error: PositionErrorCallback) => {
+    error({ code: 1, message: 'permission denied', PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 } as GeolocationPositionError);
+  });
+
+  Object.defineProperty(globalThis.navigator, 'geolocation', {
+    configurable: true,
+    value: { getCurrentPosition },
+  });
+
+  const view = render(
+    <AppShell
+      initialTime={initialTime}
+      processionsData={[
+        baseProcession({ id: 'trackable-1', title: 'Trackable 1' }),
+        baseProcession({ id: 'trackable-2', title: 'Trackable 2', startTime: '22:00', endTime: '23:30' }),
+      ]}
+      MapViewComponent={MockMapView as never}
+      HomeTopBarComponent={MockHomeTopBar as never}
+      BottomSheetComponent={MockBottomSheet as never}
+    />,
+  );
+
+  fireEvent.click(view.getByTestId('sheet-filter-nearby'));
+
+  assert.equal(getCurrentPosition.mock.callCount(), 1);
+  assert.equal(view.getByTestId('map-procession-count').textContent, '2');
+  assert.equal(view.getByTestId('sheet-filter-nearby').getAttribute('data-selected'), 'false');
+  assert.equal(view.getByTestId('sheet-filter-message').textContent, 'Activa tu ubicación para usar el filtro Cerca.');
+});
+
+test('limpiar búsqueda y filtros recupera el listado completo', () => {
+  const view = render(
+    <AppShell
+      initialTime={initialTime}
+      processionsData={[
+        baseProcession({ id: 'nazareno', title: 'Nazareno' }),
+        baseProcession({ id: 'perdon', title: 'Perdón', startTime: '22:00', endTime: '23:30' }),
+      ]}
+      MapViewComponent={MockMapView as never}
+      HomeTopBarComponent={MockHomeTopBar as never}
+      BottomSheetComponent={MockBottomSheet as never}
+    />,
+  );
+
+  fireEvent.change(view.getByLabelText('Buscar'), { target: { value: 'nazareno' } });
+  fireEvent.click(view.getByTestId('sheet-filter-active'));
+  fireEvent.click(view.getByRole('button', { name: 'Reset discovery' }));
+
+  assert.equal(view.getByTestId('map-procession-count').textContent, '2');
+  assert.equal(view.getByTestId('topbar-result-count').textContent, '2');
 });

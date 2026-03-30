@@ -5,12 +5,14 @@ import type {
   LatLngTuple,
   MatchInfo,
   Procession,
+  QuickFilterKey,
   ProcessionSheetItem,
   ProcessionSheetSortBucket,
   ProcessionStatus,
   RouteGeometry,
   RouteMarker,
   RouteSourceMeta,
+  SearchQuery,
   Theme,
 } from '../types/procession';
 import { PROCESSION_MAP_LABELS } from '../types/procession';
@@ -87,7 +89,7 @@ const geometryItems = ((rawGeometry as unknown) as { items: Record<string, RawGe
 const overrideItems = ((rawOverrides as unknown) as { items: Record<string, RawGeometryItem> }).items;
 const currentYear = new Date().getFullYear();
 
-const normalizeText = (value: string) => value
+export const normalizeText = (value: string) => value
   .toLowerCase()
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
@@ -136,6 +138,22 @@ const haversineMeters = ([lat1, lng1]: LatLngTuple, [lat2, lng2]: LatLngTuple) =
     Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(deltaLng / 2) ** 2;
 
   return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+const getNearestProcessionDistance = (procession: Procession, userLocation: LatLngTuple) => {
+  const geometryPoints = [
+    ...(procession.geometry?.path ?? []),
+    ...(procession.geometry?.markers.map((marker) => marker.point) ?? []),
+  ];
+
+  if (!geometryPoints.length) {
+    return null;
+  }
+
+  return geometryPoints.reduce((closestDistance, point) => {
+    const pointDistance = haversineMeters(userLocation, point);
+    return Math.min(closestDistance, pointDistance);
+  }, Number.POSITIVE_INFINITY);
 };
 
 const estimateEndTime = (item: RawProcession, geometry: RouteGeometry | null) => {
@@ -349,6 +367,129 @@ export const getProcessionStatus = (procession: Procession, currentTime: Date): 
   return 'active';
 };
 
+export const matchesProcessionSearch = (procession: Procession, query: SearchQuery) => {
+  const normalizedQuery = normalizeText(query).trim();
+
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  const haystack = [
+    procession.title,
+    procession.organizer,
+    procession.dayLabel,
+    procession.start,
+    ...procession.routeLabels,
+  ].map(normalizeText);
+
+  return haystack.some((value) => value.includes(normalizedQuery));
+};
+
+export const getQuickFilterProcessions = ({
+  items,
+  quickFilter,
+  currentTime,
+  today,
+  userLocation,
+}: {
+  items: Procession[];
+  quickFilter: QuickFilterKey | null;
+  currentTime: Date;
+  today: string;
+  userLocation: LatLngTuple | null;
+}) => {
+  if (!quickFilter) {
+    return { items, fallbackReason: null as string | null };
+  }
+
+  if (quickFilter === 'today') {
+    return {
+      items: items.filter((procession) => procession.date === today),
+      fallbackReason: null as string | null,
+    };
+  }
+
+  if (quickFilter === 'active' || quickFilter === 'upcoming') {
+    return {
+      items: items.filter((procession) => getProcessionStatus(procession, currentTime) === quickFilter),
+      fallbackReason: null as string | null,
+    };
+  }
+
+  if (!userLocation) {
+    return {
+      items,
+      fallbackReason: 'Activa tu ubicación para ordenar por cercanía.',
+    };
+  }
+
+  const nearbyItems = items
+    .map((procession) => ({
+      procession,
+      distanceMeters: getNearestProcessionDistance(procession, userLocation),
+    }))
+    .filter((item) => item.distanceMeters !== null)
+    .sort((left, right) => left.distanceMeters - right.distanceMeters);
+
+  return {
+    items: nearbyItems.map(({ procession }) => procession),
+    fallbackReason: nearbyItems.length ? null as string | null : 'No hay recorridos con geometría suficiente para calcular cercanía.',
+  };
+};
+
+export const getVisibleProcessions = ({
+  items,
+  query,
+  quickFilter,
+  currentTime,
+  today,
+  userLocation,
+}: {
+  items: Procession[];
+  query: SearchQuery;
+  quickFilter: QuickFilterKey | null;
+  currentTime: Date;
+  today: string;
+  userLocation: LatLngTuple | null;
+}) => {
+  const searchedItems = items.filter((procession) => matchesProcessionSearch(procession, query));
+  const { items: filteredItems, fallbackReason } = getQuickFilterProcessions({
+    items: searchedItems,
+    quickFilter,
+    currentTime,
+    today,
+    userLocation,
+  });
+
+  return {
+    items: filteredItems,
+    fallbackReason,
+  };
+};
+
+export const getQuickFilterDistanceMap = ({
+  items,
+  quickFilter,
+  userLocation,
+}: {
+  items: Procession[];
+  quickFilter: QuickFilterKey | null;
+  userLocation: LatLngTuple | null;
+}) => {
+  if (quickFilter !== 'nearby' || !userLocation) {
+    return new Map<string, number>();
+  }
+
+  return new Map(
+    items
+      .map((procession) => {
+        const distanceMeters = getNearestProcessionDistance(procession, userLocation);
+        return distanceMeters === null ? null : [procession.id, distanceMeters] as const;
+      })
+      .filter((entry): entry is readonly [string, number] => entry !== null),
+  );
+};
+
 export const getRouteBounds = (items: Procession[]) => {
   const points = items.flatMap((item) => item.geometry?.path ?? []);
 
@@ -448,11 +589,13 @@ export const getProcessionSheetItems = ({
   currentTime,
   selectedProcessionId,
   theme,
+  distanceByProcessionId,
 }: {
   items: Procession[];
   currentTime: Date;
   selectedProcessionId: string | null;
   theme: Theme;
+  distanceByProcessionId?: Map<string, number>;
 }): ProcessionSheetItem[] => {
   return [...items]
     .map((procession) => {
@@ -470,6 +613,7 @@ export const getProcessionSheetItems = ({
         sortBucket: getSheetSortBucket(procession, status),
         accentColor: getProcessionAccentColor(procession, theme),
         mapLabel: procession.hasGeometry ? PROCESSION_MAP_LABELS.trackable : PROCESSION_MAP_LABELS.missingGeometry,
+        distanceMeters: distanceByProcessionId?.get(procession.id),
       } satisfies ProcessionSheetItem;
     })
     .sort((left, right) => {

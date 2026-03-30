@@ -14,10 +14,12 @@ import MapView from './components/MapView';
 import type { MapDisplayMode } from './lib/map-view-state';
 import {
   getDefaultSelectedProcessionId,
+  getQuickFilterDistanceMap,
   getProcessionSheetItems,
+  getVisibleProcessions,
   processions,
 } from './lib/processions';
-import type { Procession, SheetSnap, Theme } from './types/procession';
+import type { Procession, QuickFilterKey, SearchQuery, SheetSnap, Theme } from './types/procession';
 
 interface ToastState {
   tone: 'success' | 'error';
@@ -109,6 +111,9 @@ export function AppShell({
   const [mapDisplayMode, setMapDisplayMode] = useState<MapDisplayMode>('procession');
   const [sheetSnap, setSheetSnap] = useState<SheetSnap>('collapsed');
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<SearchQuery>('');
+  const [quickFilter, setQuickFilter] = useState<QuickFilterKey | null>(null);
+  const [quickFilterMessage, setQuickFilterMessage] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
 
   useEffect(() => {
@@ -166,8 +171,32 @@ export function AppShell({
     [processionsData, selectedDay],
   );
 
+  const baseDiscoveryProcessions = useMemo(() => {
+    if (quickFilter === 'today') {
+      return processionsData;
+    }
+
+    return selectedDayProcessions;
+  }, [processionsData, quickFilter, selectedDayProcessions]);
+
+  const visibleProcessionsResult = useMemo(() => getVisibleProcessions({
+    items: baseDiscoveryProcessions,
+    query: searchQuery,
+    quickFilter,
+    currentTime,
+    today: todayStr,
+    userLocation,
+  }), [baseDiscoveryProcessions, currentTime, quickFilter, searchQuery, todayStr, userLocation]);
+
+  const visibleProcessions = visibleProcessionsResult.items;
+  const distanceByProcessionId = useMemo(() => getQuickFilterDistanceMap({
+    items: visibleProcessions,
+    quickFilter,
+    userLocation,
+  }), [quickFilter, userLocation, visibleProcessions]);
+
   useEffect(() => {
-    if (!selectedDayProcessions.length) {
+    if (!visibleProcessions.length) {
       if (selectedProcessionId !== null) {
         setSelectedProcessionId(null);
       }
@@ -175,46 +204,52 @@ export function AppShell({
       return;
     }
 
-    const exists = selectedDayProcessions.some((procession) => procession.id === selectedProcessionId);
+    const exists = visibleProcessions.some((procession) => procession.id === selectedProcessionId);
     if (selectedProcessionId === undefined) {
-      const defaultSelectedProcessionId = getDefaultSelectedProcessionId(selectedDayProcessions, currentTime);
+      const defaultSelectedProcessionId = getDefaultSelectedProcessionId(visibleProcessions, currentTime);
       setSelectedProcessionId(defaultSelectedProcessionId);
       setMapDisplayMode(defaultSelectedProcessionId ? 'procession' : 'day');
       return;
     }
 
     if (selectedProcessionId !== null && !exists) {
-      const defaultSelectedProcessionId = getDefaultSelectedProcessionId(selectedDayProcessions, currentTime);
+      const defaultSelectedProcessionId = getDefaultSelectedProcessionId(visibleProcessions, currentTime);
       setSelectedProcessionId(defaultSelectedProcessionId);
       setMapDisplayMode(defaultSelectedProcessionId ? 'procession' : 'day');
     }
-  }, [currentTime, selectedDayProcessions, selectedProcessionId]);
+  }, [currentTime, visibleProcessions, selectedProcessionId]);
+
+  useEffect(() => {
+    setQuickFilterMessage(visibleProcessionsResult.fallbackReason);
+  }, [visibleProcessionsResult.fallbackReason]);
 
   const selectedProcessionIdValue = selectedProcessionId ?? null;
 
   const selectedProcession = useMemo<Procession | null>(
-    () => selectedDayProcessions.find((procession) => procession.id === selectedProcessionIdValue) ?? null,
-    [selectedDayProcessions, selectedProcessionIdValue],
+    () => visibleProcessions.find((procession) => procession.id === selectedProcessionIdValue) ?? null,
+    [visibleProcessions, selectedProcessionIdValue],
   );
 
   const selectedMapProcession = selectedProcession?.hasGeometry ? selectedProcession : null;
 
   const sheetItems = useMemo(() => getProcessionSheetItems({
-    items: selectedDayProcessions,
+    items: visibleProcessions,
     currentTime,
     selectedProcessionId: selectedProcessionIdValue,
     theme,
-  }), [currentTime, selectedDayProcessions, selectedProcessionIdValue, theme]);
+    distanceByProcessionId,
+  }), [currentTime, distanceByProcessionId, selectedProcessionIdValue, theme, visibleProcessions]);
 
-  const handleLocationSuccess = (position: [number, number]) => {
+  const handleLocationSuccess = (position: [number, number], purpose: 'map' | 'nearby' = 'map') => {
     setUserLocation(position);
     setLocateRequestId((current) => current + 1);
-    setToast({ tone: 'success', message: 'Ubicación centrada en el mapa.' });
+    setQuickFilterMessage(null);
+    setToast({ tone: 'success', message: purpose === 'nearby' ? 'Mostrando las procesiones más cercanas.' : 'Ubicación centrada en el mapa.' });
     setSheetSnap('collapsed');
     setIsLocating(false);
   };
 
-  const handleLocationError = (error: unknown) => {
+  const handleLocationError = (error: unknown, purpose: 'map' | 'nearby' = 'map') => {
     console.error('Error getting location:', error);
     setToast({
       tone: 'error',
@@ -222,30 +257,38 @@ export function AppShell({
         ? 'Permite la ubicación para centrar el mapa en tu posición.'
         : 'No se pudo obtener tu ubicación en este momento.',
     });
+    if (purpose === 'nearby') {
+      setQuickFilter(null);
+      setQuickFilterMessage('Activa tu ubicación para usar el filtro Cerca.');
+    }
     setIsLocating(false);
   };
 
-  const handleLocateMe = () => {
+  const handleLocateMe = (purpose: 'map' | 'nearby' = 'map') => {
     setIsLocating(true);
 
     if (Capacitor.isNativePlatform()) {
       void getCurrentNativeLocation()
-        .then(handleLocationSuccess)
-        .catch(handleLocationError);
+        .then((position) => handleLocationSuccess(position, purpose))
+        .catch((error) => handleLocationError(error, purpose));
       return;
     }
 
     if (!('geolocation' in navigator)) {
       setToast({ tone: 'error', message: 'Tu dispositivo no soporta geolocalización.' });
+      if (purpose === 'nearby') {
+        setQuickFilter(null);
+        setQuickFilterMessage('Tu dispositivo no permite calcular cercanía ahora mismo.');
+      }
       setIsLocating(false);
       return;
     }
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        handleLocationSuccess([position.coords.latitude, position.coords.longitude]);
+        handleLocationSuccess([position.coords.latitude, position.coords.longitude], purpose);
       },
-      handleLocationError,
+      (error) => handleLocationError(error, purpose),
       { enableHighAccuracy: true, timeout: LOCATION_TIMEOUT_MS, maximumAge: 0 },
     );
   };
@@ -258,9 +301,37 @@ export function AppShell({
 
   const handleSelectDay = (day: string) => {
     setSelectedDay(day);
+    if (quickFilter === 'today' && day !== todayStr) {
+      setQuickFilter(null);
+    }
     setSelectedProcessionId(null);
     setMapDisplayMode('day');
     setSheetSnap('collapsed');
+  };
+
+  const handleToggleQuickFilter = (filter: QuickFilterKey) => {
+    if (quickFilter === filter) {
+      setQuickFilter(null);
+      setQuickFilterMessage(null);
+      return;
+    }
+
+    if (filter === 'nearby' && !userLocation) {
+      setQuickFilter('nearby');
+      setQuickFilterMessage('Buscando tu ubicación para ordenar por cercanía…');
+      handleLocateMe('nearby');
+      return;
+    }
+
+    setQuickFilter(filter);
+    setQuickFilterMessage(null);
+    setSheetSnap('mid');
+  };
+
+  const handleResetDiscovery = () => {
+    setSearchQuery('');
+    setQuickFilter(null);
+    setQuickFilterMessage(null);
   };
 
   const handleMapBackgroundTap = () => {
@@ -271,7 +342,7 @@ export function AppShell({
   return (
     <div className={`relative h-screen overflow-hidden ${theme === 'dark' ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-900'}`}>
       <MapViewComponent
-        processions={selectedDayProcessions}
+        processions={visibleProcessions}
         selectedProcession={selectedMapProcession}
         selectedProcessionId={selectedProcessionIdValue}
         userLocation={userLocation}
@@ -285,9 +356,12 @@ export function AppShell({
       />
 
       <HomeTopBarComponent
-        title="León en mapa"
         theme={theme}
         isLocating={isLocating}
+        searchQuery={searchQuery}
+        resultCount={visibleProcessions.length}
+        onSearchChange={setSearchQuery}
+        onClearSearch={() => setSearchQuery('')}
         onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
         onLocateMe={handleLocateMe}
       />
@@ -307,7 +381,12 @@ export function AppShell({
         items={sheetItems}
         availableDays={availableDays}
         selectedDay={selectedDay}
+        quickFilter={quickFilter}
+        searchQuery={searchQuery}
+        quickFilterMessage={quickFilterMessage}
         onSelectDay={handleSelectDay}
+        onToggleQuickFilter={handleToggleQuickFilter}
+        onResetDiscovery={handleResetDiscovery}
         onSelectProcession={handleSelectProcession}
         theme={theme}
         snap={sheetSnap}

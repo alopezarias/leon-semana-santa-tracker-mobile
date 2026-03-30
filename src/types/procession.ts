@@ -1,5 +1,7 @@
 export type Theme = 'light' | 'dark';
 export type SheetSnap = 'collapsed' | 'mid' | 'expanded';
+export type SearchQuery = string;
+export type QuickFilterKey = 'today' | 'active' | 'upcoming' | 'nearby';
 
 export type LatLngTuple = [number, number];
 
@@ -68,6 +70,7 @@ export interface ProcessionSheetItem {
   sortBucket: ProcessionSheetSortBucket;
   accentColor: string;
   mapLabel: string;
+  distanceMeters?: number;
 }
 
 export const PROCESSION_STATUS_LABELS: Record<ProcessionStatus, string> = {

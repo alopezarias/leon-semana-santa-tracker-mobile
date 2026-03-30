@@ -10,3 +10,43 @@ android/local.properties
 android/keystore.properties
 android/*.jks
 android/*.keystore
+
+.env.example
+
+android/app/src/androidTest/java/com/getcapacitor/myapp/ExampleInstrumentedTest.java
+
+android/app/src/test/java/com/getcapacitor/myapp/ExampleUnitTest.java
+
+especificacion_procesiones.md
+
+especificacion_ux_procesiones.md
+
+metadata.json
+
+screenshots/Captura de pantalla 2026-03-30 a las 8.32.38.png
+
+screenshots/Captura de pantalla 2026-03-30 a las 8.33.13.png
+
+screenshots/Captura de pantalla 2026-03-30 a las 8.33.20.png
+
+screenshots/Captura de pantalla 2026-03-30 a las 8.33.27.png
+
+screenshots/Captura de pantalla 2026-03-30 a las 8.33.36.png
+
+screenshots/google maps 3.jpg
+
+screenshots/google maps 4.jpg
+
+screenshots/google maps 5.jpg
+
+screenshots/google maps 6.jpg
+
+screenshots/google maps 7.jpg
+
+screenshots/google maps 8.jpg
+
+screenshots/google_maps_video.mp4
+
+screenshots/google-maps 2.jpg
+
+screenshots/google-maps.jpg

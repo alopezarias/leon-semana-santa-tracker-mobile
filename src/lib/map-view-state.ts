@@ -1,23 +1,22 @@
-import type { Procession } from '../types/procession';
+import type { HomePresentation, Procession } from '../types/procession';
 
 export type MapDisplayMode = 'procession' | 'day' | 'free';
 
 interface VisibleMapProcessionsOptions {
   processions: Procession[];
-  displayMode: MapDisplayMode;
+  presentation: HomePresentation;
   selectedProcession: Procession | null;
-  selectedProcessionId: string | null;
 }
 
 export const getVisibleMapProcessions = ({
   processions,
-  displayMode,
+  presentation,
   selectedProcession,
-  selectedProcessionId,
 }: VisibleMapProcessionsOptions) => {
   const trackableProcessions = processions.filter((procession) => procession.hasGeometry);
+  const { mapDisplayMode, selectedProcessionId } = presentation;
 
-  if (displayMode !== 'procession') {
+  if (mapDisplayMode !== 'procession') {
     return trackableProcessions;
   }
 

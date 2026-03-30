@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import ProcessionSheetItem from './ProcessionSheetItem';
-import type { ProcessionSheetItem as ProcessionSheetItemModel, QuickFilterKey, SheetSnap, Theme } from '../types/procession';
+import type { HomeUxMode, ProcessionSheetItem as ProcessionSheetItemModel, QuickFilterKey, SheetSnap, Theme } from '../types/procession';
 
 interface AvailableDay {
   date: string;
@@ -22,8 +22,9 @@ interface BottomSheetProps {
   onResetDiscovery: () => void;
   onSelectProcession: (processionId: string) => void;
   theme: Theme;
+  uxMode: HomeUxMode;
   snap: SheetSnap;
-  setSnap: (snap: SheetSnap) => void;
+  onRequestSnap: (snap: SheetSnap) => void;
 }
 
 const snapRatio: Record<SheetSnap, number> = {
@@ -80,8 +81,9 @@ export default function BottomSheet({
   onResetDiscovery,
   onSelectProcession,
   theme,
+  uxMode,
   snap,
-  setSnap,
+  onRequestSnap,
 }: BottomSheetProps) {
   const isDark = theme === 'dark';
   const shouldReduceMotion = useReducedMotion();
@@ -114,14 +116,14 @@ export default function BottomSheet({
       dragElastic={0.16}
       dragMomentum={false}
       onDragStart={() => setIsDragging(true)}
-      onDragEnd={(_, info) => {
-        setIsDragging(false);
-        setSnap(resolveSheetSnap({
-          snap,
-          offsetY: info.offset.y,
-          velocityY: info.velocity.y,
-          snapHeights,
-        }));
+        onDragEnd={(_, info) => {
+          setIsDragging(false);
+          onRequestSnap(resolveSheetSnap({
+            snap,
+            offsetY: info.offset.y,
+            velocityY: info.velocity.y,
+            snapHeights,
+          }));
       }}
       animate={{
         height: snapHeights[snap],
@@ -140,7 +142,7 @@ export default function BottomSheet({
       <div className="flex h-full flex-col px-4 pb-2 pt-3">
         <button
           type="button"
-          onClick={() => setSnap(nextSnap(snap))}
+          onClick={() => onRequestSnap(nextSnap(snap))}
           className="-mx-2 mb-3 flex min-h-14 items-center justify-between gap-3 rounded-[24px] px-2 text-left transition-colors active:scale-[0.995]"
           aria-label="Cambiar altura del panel"
         >
@@ -166,7 +168,7 @@ export default function BottomSheet({
           </div>
 
           <span className={`text-[11px] font-medium uppercase tracking-[0.18em] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-            {snap}
+            {uxMode === 'DETAIL' ? 'detalle' : snap}
           </span>
         </button>
 

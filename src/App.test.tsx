@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, mock, test } from 'node:test';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { JSDOM } from 'jsdom';
-import type { Procession, ProcessionSheetItem as ProcessionSheetItemModel, QuickFilterKey, SearchQuery } from './types/procession';
+import type { HomePresentation, Procession, ProcessionSheetItem as ProcessionSheetItemModel, QuickFilterKey, SearchQuery } from './types/procession';
 
 let dom: JSDOM;
 let AppShell: typeof import('./App').AppShell;
@@ -73,17 +73,15 @@ afterEach(() => {
 
 function MockMapView({
   processions,
+  presentation,
   selectedProcession,
-  selectedProcessionId,
-  displayMode,
   locateRequestId,
   viewportPaddingBottom,
   onMapBackgroundTap,
 }: {
   processions: Procession[];
+  presentation: HomePresentation;
   selectedProcession: Procession | null;
-  selectedProcessionId: string | null;
-  displayMode: 'procession' | 'day' | 'free';
   locateRequestId: number;
   viewportPaddingBottom: number;
   onMapBackgroundTap: () => void;
@@ -92,8 +90,9 @@ function MockMapView({
     <section aria-label="Mapa principal">
       <div data-testid="map-procession-count">{processions.length}</div>
       <div data-testid="map-selected-procession">{selectedProcession?.id ?? 'none'}</div>
-      <div data-testid="map-selected-procession-id">{selectedProcessionId ?? 'none'}</div>
-      <div data-testid="map-display-mode">{displayMode}</div>
+      <div data-testid="map-selected-procession-id">{presentation.selectedProcessionId ?? 'none'}</div>
+      <div data-testid="map-display-mode">{presentation.mapDisplayMode}</div>
+      <div data-testid="home-ux-mode">{presentation.uxMode}</div>
       <div data-testid="map-locate-request-id">{locateRequestId}</div>
       <div data-testid="map-padding-bottom">{viewportPaddingBottom}</div>
       <button type="button" onClick={onMapBackgroundTap}>Vaciar selección</button>
@@ -112,7 +111,8 @@ function MockBottomSheet({
   onToggleQuickFilter,
   onResetDiscovery,
   snap,
-  setSnap,
+  uxMode,
+  onRequestSnap,
   onSelectProcession,
 }: {
   items: ProcessionSheetItemModel[];
@@ -125,13 +125,17 @@ function MockBottomSheet({
   onToggleQuickFilter: (filter: QuickFilterKey) => void;
   onResetDiscovery: () => void;
   snap: 'collapsed' | 'mid' | 'expanded';
-  setSnap: (snap: 'collapsed' | 'mid' | 'expanded') => void;
+  uxMode: 'IDLE' | 'LIST' | 'SELECTED' | 'DETAIL';
+  onRequestSnap: (snap: 'collapsed' | 'mid' | 'expanded') => void;
   onSelectProcession: (processionId: string) => void;
 }) {
   return (
     <section aria-label="Panel de procesiones">
       <div data-testid="sheet-snap">{snap}</div>
-      <button type="button" onClick={() => setSnap('expanded')}>Expandir panel</button>
+      <div data-testid="sheet-ux-mode">{uxMode}</div>
+      <button type="button" onClick={() => onRequestSnap('expanded')}>Expandir panel</button>
+      <button type="button" onClick={() => onRequestSnap('mid')}>Panel a media altura</button>
+      <button type="button" onClick={() => onRequestSnap('collapsed')}>Colapsar panel</button>
       {availableDays.map((day) => (
         <button
           key={day.date}
@@ -242,6 +246,7 @@ test('seleccionar un item trackable sincroniza sheet y mapa', () => {
 
   assert.equal(view.getByTestId('map-selected-procession').textContent, 'trackable-2');
   assert.equal(view.getByTestId('map-display-mode').textContent, 'procession');
+  assert.equal(view.getByTestId('home-ux-mode').textContent, 'SELECTED');
   assert.equal(view.getByTestId('sheet-item-trackable-2').getAttribute('data-selected'), 'true');
   assert.equal(view.getByTestId('sheet-snap').textContent, 'collapsed');
   assert.equal(view.getByTestId('map-padding-bottom').textContent, '176');
@@ -371,6 +376,8 @@ test('tocar el fondo del mapa limpia la selección actual', () => {
 
   assert.equal(view.getByTestId('map-selected-procession').textContent, 'none');
   assert.equal(view.getByTestId('sheet-item-trackable-2').getAttribute('data-selected'), 'false');
+  assert.equal(view.getByTestId('home-ux-mode').textContent, 'LIST');
+  assert.equal(view.getByTestId('map-display-mode').textContent, 'day');
 });
 
 test('el item compacto elimina el patrón Ver ruta/Ocultar ruta', () => {
@@ -451,8 +458,9 @@ test('el sheet usa chips de día y filtros rápidos con reset de estado vacío',
       onResetDiscovery={() => {}}
       onSelectProcession={() => {}}
       theme="dark"
+      uxMode="LIST"
       snap="mid"
-      setSnap={() => {}}
+      onRequestSnap={() => {}}
     />,
   );
 
@@ -485,6 +493,72 @@ test('buscar filtra la lista y el mapa sin romper la selección', async () => {
   assert.equal(view.getByTestId('map-selected-procession-id').textContent, 'perdon');
   assert.equal(view.queryByTestId('sheet-item-nazareno'), null);
   assert.equal(view.getByTestId('topbar-result-count').textContent, '1');
+});
+
+test('expandir desde selected lleva a detail directamente', () => {
+  const view = render(
+    <AppShell
+      initialTime={initialTime}
+      processionsData={[
+        baseProcession({ id: 'trackable-1', title: 'Trackable 1' }),
+        baseProcession({ id: 'trackable-2', title: 'Trackable 2', startTime: '22:00', endTime: '23:30' }),
+      ]}
+      MapViewComponent={MockMapView as never}
+      HomeTopBarComponent={MockHomeTopBar as never}
+      BottomSheetComponent={MockBottomSheet as never}
+    />,
+  );
+
+  fireEvent.click(view.getByTestId('sheet-item-trackable-2'));
+  fireEvent.click(view.getByRole('button', { name: 'Panel a media altura' }));
+
+  assert.equal(view.getByTestId('home-ux-mode').textContent, 'DETAIL');
+  assert.equal(view.getByTestId('sheet-snap').textContent, 'expanded');
+  assert.equal(view.getByTestId('map-selected-procession-id').textContent, 'trackable-2');
+});
+
+test('si búsqueda invalida la selección cae a list manteniendo el contexto de descubrimiento', async () => {
+  const view = render(
+    <AppShell
+      initialTime={initialTime}
+      processionsData={[
+        baseProcession({ id: 'nazareno', title: 'Nazareno', organizer: 'Cofradía del Nazareno' }),
+        baseProcession({ id: 'perdon', title: 'Perdón', organizer: 'Cofradía del Perdón', startTime: '22:00', endTime: '23:30' }),
+      ]}
+      MapViewComponent={MockMapView as never}
+      HomeTopBarComponent={MockHomeTopBar as never}
+      BottomSheetComponent={MockBottomSheet as never}
+    />,
+  );
+
+  fireEvent.click(view.getByTestId('sheet-item-perdon'));
+  fireEvent.input(view.getByLabelText('Buscar'), { target: { value: 'nazareno' } });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(view.getByTestId('home-ux-mode').textContent, 'LIST');
+  assert.equal(view.getByTestId('sheet-snap').textContent, 'mid');
+  assert.equal(view.getByTestId('map-display-mode').textContent, 'day');
+  assert.equal(view.queryByTestId('sheet-item-perdon'), null);
+  assert.equal(view.getByTestId('sheet-item-nazareno').getAttribute('data-selected'), 'false');
+});
+
+test('sin resultados por búsqueda mantiene list para mostrar estado vacío de fase 1', async () => {
+  const view = render(
+    <AppShell
+      initialTime={initialTime}
+      processionsData={[baseProcession({ id: 'nazareno', title: 'Nazareno' })]}
+      MapViewComponent={MockMapView as never}
+      HomeTopBarComponent={MockHomeTopBar as never}
+      BottomSheetComponent={MockBottomSheet as never}
+    />,
+  );
+
+  fireEvent.input(view.getByLabelText('Buscar'), { target: { value: 'perdon' } });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(view.getByTestId('home-ux-mode').textContent, 'LIST');
+  assert.equal(view.getByTestId('sheet-snap').textContent, 'mid');
+  assert.equal(view.getByRole('button', { name: 'Reset discovery' }).tagName, 'BUTTON');
 });
 
 test('el filtro Cerca pide ubicación bajo demanda y si falla no vacía resultados', () => {

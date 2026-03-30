@@ -37,9 +37,13 @@ test('modo día mantiene visibles todas las procesiones trackable del día', () 
       baseProcession({ id: 'day-b', startTime: '20:00', endTime: '22:00' }),
       baseProcession({ id: 'day-c-no-geometry', hasGeometry: false, geometry: null }),
     ],
-    displayMode: 'day',
+    presentation: {
+      uxMode: 'LIST',
+      mapDisplayMode: 'day',
+      selectedProcessionId: null,
+      sheetSnap: 'mid',
+    },
     selectedProcession: null,
-    selectedProcessionId: null,
   });
 
   assert.deepEqual(visible.map((procession) => procession.id), ['day-a', 'day-b']);
@@ -53,9 +57,13 @@ test('modo procesión muestra solo la procesión elegida', () => {
       selectedProcession,
       baseProcession({ id: 'other-b', startTime: '20:00', endTime: '22:00' }),
     ],
-    displayMode: 'procession',
+    presentation: {
+      uxMode: 'SELECTED',
+      mapDisplayMode: 'procession',
+      selectedProcessionId: 'selected',
+      sheetSnap: 'collapsed',
+    },
     selectedProcession,
-    selectedProcessionId: 'selected',
   });
 
   assert.deepEqual(visible.map((procession) => procession.id), ['selected']);
@@ -67,12 +75,35 @@ test('modo procesión oculta el resto cuando la seleccionada no tiene geometría
       baseProcession({ id: 'other-a' }),
       baseProcession({ id: 'other-b', startTime: '20:00', endTime: '22:00' }),
     ],
-    displayMode: 'procession',
+    presentation: {
+      uxMode: 'SELECTED',
+      mapDisplayMode: 'procession',
+      selectedProcessionId: 'no-geometry',
+      sheetSnap: 'collapsed',
+    },
     selectedProcession: null,
-    selectedProcessionId: 'no-geometry',
   });
 
   assert.deepEqual(visible, []);
+});
+
+test('modo free mantiene visibles las procesiones trackable sin selección', () => {
+  const visible = getVisibleMapProcessions({
+    processions: [
+      baseProcession({ id: 'free-a' }),
+      baseProcession({ id: 'free-b', hasGeometry: false, geometry: null }),
+      baseProcession({ id: 'free-c' }),
+    ],
+    presentation: {
+      uxMode: 'IDLE',
+      mapDisplayMode: 'free',
+      selectedProcessionId: null,
+      sheetSnap: 'collapsed',
+    },
+    selectedProcession: null,
+  });
+
+  assert.deepEqual(visible.map((procession) => procession.id), ['free-a', 'free-c']);
 });
 
 test('ubicarme calcula offset vertical real según overlays', () => {

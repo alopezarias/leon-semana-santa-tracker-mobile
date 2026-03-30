@@ -2,6 +2,8 @@ export type Theme = 'light' | 'dark';
 export type SheetSnap = 'collapsed' | 'mid' | 'expanded';
 export type SearchQuery = string;
 export type QuickFilterKey = 'today' | 'active' | 'upcoming' | 'nearby';
+export type HomeUxMode = 'IDLE' | 'LIST' | 'SELECTED' | 'DETAIL';
+export type HomeBrowsingMapMode = 'day' | 'free';
 
 export type LatLngTuple = [number, number];
 
@@ -71,6 +73,19 @@ export interface ProcessionSheetItem {
   accentColor: string;
   mapLabel: string;
   distanceMeters?: number;
+}
+
+export type HomeUxState =
+  | { mode: 'IDLE'; browsingMapMode: HomeBrowsingMapMode }
+  | { mode: 'LIST'; snap: 'mid' | 'expanded' }
+  | { mode: 'SELECTED'; selectedProcessionId: string }
+  | { mode: 'DETAIL'; selectedProcessionId: string };
+
+export interface HomePresentation {
+  uxMode: HomeUxMode;
+  selectedProcessionId: string | null;
+  sheetSnap: SheetSnap;
+  mapDisplayMode: 'procession' | 'day' | 'free';
 }
 
 export const PROCESSION_STATUS_LABELS: Record<ProcessionStatus, string> = {

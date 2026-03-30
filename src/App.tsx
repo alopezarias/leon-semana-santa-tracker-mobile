@@ -11,15 +11,19 @@ import { es } from 'date-fns/locale';
 import BottomSheet from './components/BottomSheet';
 import HomeTopBar from './components/HomeTopBar';
 import MapView from './components/MapView';
-import type { MapDisplayMode } from './lib/map-view-state';
 import {
-  getDefaultSelectedProcessionId,
+  createIdleHomeUxState,
+  getHasDiscoveryContext,
+  resolveHomePresentation,
+  transitionHomeUxState,
+} from './lib/home-ux-state';
+import {
   getQuickFilterDistanceMap,
   getProcessionSheetItems,
   getVisibleProcessions,
   processions,
 } from './lib/processions';
-import type { Procession, QuickFilterKey, SearchQuery, SheetSnap, Theme } from './types/procession';
+import type { HomeUxState, Procession, QuickFilterKey, SearchQuery, SheetSnap, Theme } from './types/procession';
 
 interface ToastState {
   tone: 'success' | 'error';
@@ -107,9 +111,7 @@ export function AppShell({
     const storedTheme = window.localStorage.getItem('leon-theme');
     return storedTheme === 'light' ? 'light' : 'dark';
   });
-  const [selectedProcessionId, setSelectedProcessionId] = useState<string | null | undefined>(undefined);
-  const [mapDisplayMode, setMapDisplayMode] = useState<MapDisplayMode>('procession');
-  const [sheetSnap, setSheetSnap] = useState<SheetSnap>('collapsed');
+  const [homeUxState, setHomeUxState] = useState<HomeUxState>(() => createIdleHomeUxState());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<SearchQuery>('');
   const [quickFilter, setQuickFilter] = useState<QuickFilterKey | null>(null);
@@ -189,6 +191,11 @@ export function AppShell({
   }), [baseDiscoveryProcessions, currentTime, quickFilter, searchQuery, todayStr, userLocation]);
 
   const visibleProcessions = visibleProcessionsResult.items;
+  const hasDiscoveryContext = getHasDiscoveryContext({
+    visibleProcessionIds: visibleProcessions.map((procession) => procession.id),
+    searchQuery,
+    quickFilter,
+  });
   const distanceByProcessionId = useMemo(() => getQuickFilterDistanceMap({
     items: visibleProcessions,
     quickFilter,
@@ -196,41 +203,51 @@ export function AppShell({
   }), [quickFilter, userLocation, visibleProcessions]);
 
   useEffect(() => {
-    if (!visibleProcessions.length) {
-      if (selectedProcessionId !== null) {
-        setSelectedProcessionId(null);
-      }
-      setMapDisplayMode('day');
-      return;
-    }
-
-    const exists = visibleProcessions.some((procession) => procession.id === selectedProcessionId);
-    if (selectedProcessionId === undefined) {
-      const defaultSelectedProcessionId = getDefaultSelectedProcessionId(visibleProcessions, currentTime);
-      setSelectedProcessionId(defaultSelectedProcessionId);
-      setMapDisplayMode(defaultSelectedProcessionId ? 'procession' : 'day');
-      return;
-    }
-
-    if (selectedProcessionId !== null && !exists) {
-      const defaultSelectedProcessionId = getDefaultSelectedProcessionId(visibleProcessions, currentTime);
-      setSelectedProcessionId(defaultSelectedProcessionId);
-      setMapDisplayMode(defaultSelectedProcessionId ? 'procession' : 'day');
-    }
-  }, [currentTime, visibleProcessions, selectedProcessionId]);
+    setHomeUxState((current) => transitionHomeUxState(current, {
+      type: 'syncVisibleProcessions',
+      visibleProcessionIds: visibleProcessions.map((procession) => procession.id),
+      hasDiscoveryContext,
+      browsingMapMode: 'day',
+    }));
+  }, [hasDiscoveryContext, visibleProcessions]);
 
   useEffect(() => {
     setQuickFilterMessage(visibleProcessionsResult.fallbackReason);
   }, [visibleProcessionsResult.fallbackReason]);
 
-  const selectedProcessionIdValue = selectedProcessionId ?? null;
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return;
+      }
+
+      setHomeUxState((current) => transitionHomeUxState(current, {
+        type: 'back',
+        hasDiscoveryContext,
+      }));
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [hasDiscoveryContext]);
+
+  const selectedProcessionIdFromState = homeUxState.mode === 'SELECTED' || homeUxState.mode === 'DETAIL'
+    ? homeUxState.selectedProcessionId
+    : null;
 
   const selectedProcession = useMemo<Procession | null>(
-    () => visibleProcessions.find((procession) => procession.id === selectedProcessionIdValue) ?? null,
-    [visibleProcessions, selectedProcessionIdValue],
+    () => visibleProcessions.find((procession) => procession.id === selectedProcessionIdFromState) ?? null,
+    [selectedProcessionIdFromState, visibleProcessions],
   );
 
+  const homePresentation = useMemo(() => resolveHomePresentation(homeUxState, {
+    selectedProcessionHasGeometry: selectedProcession?.hasGeometry ?? null,
+  }), [homeUxState, selectedProcession]);
+
+  const selectedProcessionIdValue = homePresentation.selectedProcessionId;
+
   const selectedMapProcession = selectedProcession?.hasGeometry ? selectedProcession : null;
+  const sheetSnap: SheetSnap = homePresentation.sheetSnap;
 
   const sheetItems = useMemo(() => getProcessionSheetItems({
     items: visibleProcessions,
@@ -245,7 +262,7 @@ export function AppShell({
     setLocateRequestId((current) => current + 1);
     setQuickFilterMessage(null);
     setToast({ tone: 'success', message: purpose === 'nearby' ? 'Mostrando las procesiones más cercanas.' : 'Ubicación centrada en el mapa.' });
-    setSheetSnap('collapsed');
+    setHomeUxState((current) => transitionHomeUxState(current, { type: 'requestSheetSnap', snap: 'collapsed' }));
     setIsLocating(false);
   };
 
@@ -294,9 +311,7 @@ export function AppShell({
   };
 
   const handleSelectProcession = (processionId: string) => {
-    setSelectedProcessionId(processionId);
-    setMapDisplayMode('procession');
-    setSheetSnap('collapsed');
+    setHomeUxState((current) => transitionHomeUxState(current, { type: 'selectProcession', processionId }));
   };
 
   const handleSelectDay = (day: string) => {
@@ -304,9 +319,7 @@ export function AppShell({
     if (quickFilter === 'today' && day !== todayStr) {
       setQuickFilter(null);
     }
-    setSelectedProcessionId(null);
-    setMapDisplayMode('day');
-    setSheetSnap('collapsed');
+    setHomeUxState(createIdleHomeUxState('day'));
   };
 
   const handleToggleQuickFilter = (filter: QuickFilterKey) => {
@@ -319,13 +332,18 @@ export function AppShell({
     if (filter === 'nearby' && !userLocation) {
       setQuickFilter('nearby');
       setQuickFilterMessage('Buscando tu ubicación para ordenar por cercanía…');
+      setHomeUxState((current) => current.mode === 'IDLE'
+        ? transitionHomeUxState(current, { type: 'openList', snap: 'mid' })
+        : current);
       handleLocateMe('nearby');
       return;
     }
 
     setQuickFilter(filter);
     setQuickFilterMessage(null);
-    setSheetSnap('mid');
+    setHomeUxState((current) => current.mode === 'IDLE'
+      ? transitionHomeUxState(current, { type: 'openList', snap: 'mid' })
+      : current);
   };
 
   const handleResetDiscovery = () => {
@@ -335,19 +353,38 @@ export function AppShell({
   };
 
   const handleMapBackgroundTap = () => {
-    setSelectedProcessionId(null);
-    setMapDisplayMode('free');
+    setHomeUxState((current) => transitionHomeUxState(current, {
+      type: 'backgroundTap',
+      hasDiscoveryContext,
+    }));
+  };
+
+  const handleSearchChange = (value: SearchQuery) => {
+    setSearchQuery(value);
+    setHomeUxState((current) => current.mode === 'IDLE'
+      ? transitionHomeUxState(current, { type: 'openList', snap: 'mid' })
+      : current);
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery('');
+  };
+
+  const handleRequestSheetSnap = (snap: SheetSnap) => {
+    setHomeUxState((current) => transitionHomeUxState(current, {
+      type: 'requestSheetSnap',
+      snap,
+    }));
   };
 
   return (
     <div className={`relative h-screen overflow-hidden ${theme === 'dark' ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-900'}`}>
       <MapViewComponent
         processions={visibleProcessions}
+        presentation={homePresentation}
         selectedProcession={selectedMapProcession}
-        selectedProcessionId={selectedProcessionIdValue}
         userLocation={userLocation}
         locateRequestId={locateRequestId}
-        displayMode={mapDisplayMode}
         theme={theme}
         currentTime={currentTime}
         viewportPaddingTop={112}
@@ -360,8 +397,8 @@ export function AppShell({
         isLocating={isLocating}
         searchQuery={searchQuery}
         resultCount={visibleProcessions.length}
-        onSearchChange={setSearchQuery}
-        onClearSearch={() => setSearchQuery('')}
+        onSearchChange={handleSearchChange}
+        onClearSearch={handleClearSearch}
         onToggleTheme={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
         onLocateMe={handleLocateMe}
       />
@@ -389,8 +426,9 @@ export function AppShell({
         onResetDiscovery={handleResetDiscovery}
         onSelectProcession={handleSelectProcession}
         theme={theme}
+        uxMode={homePresentation.uxMode}
         snap={sheetSnap}
-        setSnap={setSheetSnap}
+        onRequestSnap={handleRequestSheetSnap}
       />
     </div>
   );

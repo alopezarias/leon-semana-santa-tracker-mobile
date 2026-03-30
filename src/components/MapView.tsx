@@ -4,15 +4,14 @@ import type { LatLngBoundsExpression, LatLngExpression } from 'leaflet';
 import { differenceInSeconds } from 'date-fns';
 import { getLocateMePanOffset, getVisibleMapProcessions, type MapDisplayMode } from '../lib/map-view-state';
 import { getInterpolatedPosition, getRouteBounds } from '../lib/processions';
-import type { Procession, Theme } from '../types/procession';
+import type { HomePresentation, Procession, Theme } from '../types/procession';
 
 interface MapViewProps {
   processions: Procession[];
+  presentation: HomePresentation;
   selectedProcession: Procession | null;
-  selectedProcessionId: string | null;
   userLocation: [number, number] | null;
   locateRequestId: number;
-  displayMode: MapDisplayMode;
   theme: Theme;
   currentTime: Date;
   viewportPaddingTop: number;
@@ -44,14 +43,15 @@ function MapBackgroundTapHandler({ onTap }: { onTap: () => void }) {
 function MapViewport({
   processions,
   selectedProcession,
+  presentation,
   userLocation,
   locateRequestId,
-  displayMode,
   viewportPaddingTop,
   viewportPaddingBottom,
-}: Pick<MapViewProps, 'processions' | 'selectedProcession' | 'userLocation' | 'locateRequestId' | 'displayMode' | 'viewportPaddingTop' | 'viewportPaddingBottom'>) {
+}: Pick<MapViewProps, 'processions' | 'selectedProcession' | 'presentation' | 'userLocation' | 'locateRequestId' | 'viewportPaddingTop' | 'viewportPaddingBottom'>) {
   const map = useMap();
   const lastLocateRequestId = useRef<number | null>(null);
+  const displayMode: MapDisplayMode = presentation.mapDisplayMode;
 
   const selectedBounds = useMemo(() => {
     if (!selectedProcession?.hasGeometry) {
@@ -170,11 +170,10 @@ function ProcessionRoute({
 
 export default function MapView({
   processions,
+  presentation,
   selectedProcession,
-  selectedProcessionId,
   userLocation,
   locateRequestId,
-  displayMode,
   theme,
   currentTime,
   viewportPaddingTop,
@@ -185,9 +184,8 @@ export default function MapView({
   const trackableProcessions = processions.filter((procession) => procession.hasGeometry);
   const visibleProcessions = getVisibleMapProcessions({
     processions,
-    displayMode,
+    presentation,
     selectedProcession,
-    selectedProcessionId,
   });
 
   return (
@@ -203,9 +201,9 @@ export default function MapView({
         <MapViewport
           processions={trackableProcessions}
           selectedProcession={selectedProcession}
+          presentation={presentation}
           userLocation={userLocation}
           locateRequestId={locateRequestId}
-          displayMode={displayMode}
           viewportPaddingTop={viewportPaddingTop}
           viewportPaddingBottom={viewportPaddingBottom}
         />
@@ -215,7 +213,7 @@ export default function MapView({
             key={procession.id}
             procession={procession}
             isSelected={selectedProcession?.id === procession.id}
-            isDimmed={displayMode !== 'procession' && Boolean(selectedProcession && selectedProcession.id !== procession.id)}
+            isDimmed={presentation.mapDisplayMode !== 'procession' && Boolean(selectedProcession && selectedProcession.id !== procession.id)}
             theme={theme}
             currentTime={currentTime}
           />

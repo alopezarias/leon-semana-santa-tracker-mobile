@@ -7,6 +7,13 @@ export type HomeBrowsingMapMode = 'day' | 'free';
 
 export type LatLngTuple = [number, number];
 
+export interface AvoidZone {
+  processionId: string;
+  center: LatLngTuple;
+  radiusMeters: number;
+  label: string;
+}
+
 export interface RouteMarker {
   label: string;
   point: LatLngTuple;
@@ -92,6 +99,8 @@ export interface ProcessionDetailSheetData {
   routeAvailability: ProcessionRouteAvailability;
   routeAvailabilityLabel: string;
   routeFallbackText: string;
+  canAvoidZone: boolean;
+  avoidZoneReason: string;
 }
 
 export type HomeUxState =

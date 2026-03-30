@@ -8,11 +8,11 @@
     "build": "vite build",
     "cap:sync": "./node_modules/.bin/cap sync",
     "android:sync": "npm run build && ./node_modules/.bin/cap sync android",
-    "android:build:release": "npm run android:sync && ./android/gradlew -p android assembleRelease",
+    "android:build:release": "if [ -x /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home/bin/java ]; then export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home && export PATH=\"$JAVA_HOME/bin:$PATH\"; fi; npm run android:sync && node ./scripts/ensure-android-java17.mjs && ./android/gradlew -p android assembleRelease",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "test": "node --import tsx --test src/**/*.test.ts src/**/*.test.tsx"
+    "test": "node --import tsx --test src/*.test.ts src/*.test.tsx src/**/*.test.ts src/**/*.test.tsx"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.0",

@@ -6,13 +6,14 @@ interface ProcessionDetailSheetProps {
   detail: ProcessionDetailSheetData;
   theme: Theme;
   onViewRoute?: () => void;
+  onAvoidZone?: () => void;
 }
 
 const isRouteActionAvailable = (routeAvailability: ProcessionDetailSheetData['routeAvailability']) => (
   routeAvailability !== 'unavailable' && routeAvailability !== 'tracking-only'
 );
 
-export default function ProcessionDetailSheet({ detail, theme, onViewRoute }: ProcessionDetailSheetProps) {
+export default function ProcessionDetailSheet({ detail, theme, onViewRoute, onAvoidZone }: ProcessionDetailSheetProps) {
   const isDark = theme === 'dark';
   const [itineraryNoticeVisible, setItineraryNoticeVisible] = useState(false);
   const canViewRoute = isRouteActionAvailable(detail.routeAvailability);
@@ -107,6 +108,32 @@ export default function ProcessionDetailSheet({ detail, theme, onViewRoute }: Pr
         <p className={clsx('mt-3 text-sm leading-6', isDark ? 'text-slate-400' : 'text-slate-500')}>
           {detail.routeFallbackText}
         </p>
+
+        <div className={clsx(
+          'mt-4 rounded-[20px] border px-4 py-3',
+          isDark ? 'border-white/10 bg-slate-950/70' : 'border-slate-200 bg-slate-50',
+        )}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold">Evitar zona</p>
+              <p className={clsx('mt-1 text-sm leading-6', isDark ? 'text-slate-300' : 'text-slate-600')}>
+                {detail.avoidZoneReason}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onAvoidZone?.()}
+              disabled={!detail.canAvoidZone}
+              className={clsx(
+                'inline-flex min-h-11 items-center rounded-full border px-4 text-sm font-medium transition-[transform,background-color,color,opacity] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55',
+                isDark ? 'border-white/10 bg-white/[0.08] text-white' : 'border-slate-200 bg-white text-slate-900',
+              )}
+            >
+              Evitar zona
+            </button>
+          </div>
+        </div>
 
         {detail.officialItinerary ? (
           <div className={clsx(

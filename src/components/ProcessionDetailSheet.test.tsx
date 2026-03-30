@@ -23,6 +23,8 @@ const baseDetail = (overrides: Partial<ProcessionDetailSheetData> = {}): Process
   routeAvailability: 'official-map',
   routeAvailabilityLabel: 'Recorrido oficial disponible',
   routeFallbackText: 'Puedes abrir el recorrido oficial y consultar también el itinerario textual si está disponible.',
+  canAvoidZone: true,
+  avoidZoneReason: 'Oculta temporalmente esta zona en tu vista local. No recalcula rutas.',
   ...overrides,
 });
 
@@ -43,6 +45,7 @@ afterEach(() => {
 
 test('renderiza la ficha expandida con CTA segura cuando hay recorrido oficial', () => {
   let clicks = 0;
+  let avoidZoneClicks = 0;
 
   const view = render(
     <ProcessionDetailSheet
@@ -50,6 +53,9 @@ test('renderiza la ficha expandida con CTA segura cuando hay recorrido oficial',
       theme="dark"
       onViewRoute={() => {
         clicks += 1;
+      }}
+      onAvoidZone={() => {
+        avoidZoneClicks += 1;
       }}
     />,
   );
@@ -60,7 +66,10 @@ test('renderiza la ficha expandida con CTA segura cuando hay recorrido oficial',
   assert.match(view.getByText(/recorrido oficial disponible/i).textContent ?? '', /oficial/i);
 
   fireEvent.click(view.getByRole('button', { name: 'Ver recorrido' }));
+  fireEvent.click(view.getByRole('button', { name: 'Evitar zona' }));
   assert.equal(clicks, 1);
+  assert.equal(avoidZoneClicks, 1);
+  assert.match(view.getByText(/oculta temporalmente esta zona/i).textContent ?? '', /local/i);
 });
 
 test('muestra itinerario y CTA local cuando solo existe itinerario oficial', () => {
@@ -95,13 +104,17 @@ test('desactiva la CTA y mantiene fallbacks explícitos con datos parciales', ()
         routeAvailability: 'unavailable',
         routeAvailabilityLabel: 'Recorrido no disponible',
         routeFallbackText: 'Recorrido no disponible por ahora.',
+        canAvoidZone: false,
+        avoidZoneReason: 'Evitar zona solo está disponible cuando la procesión tiene geometría válida.',
       })}
       theme="dark"
     />,
   );
 
   assert.equal(view.getByRole('button', { name: 'Ver recorrido' }).getAttribute('disabled'), '');
+  assert.equal(view.getByRole('button', { name: 'Evitar zona' }).getAttribute('disabled'), '');
   assert.equal(view.getByText(/descripción oficial pendiente/i).tagName, 'P');
   assert.equal(view.getByText(/recorrido no disponible por ahora/i).tagName, 'P');
   assert.equal(view.getByText(/sin seguimiento en mapa/i).tagName, 'DD');
+  assert.match(view.getByText(/evitar zona solo está disponible/i).textContent ?? '', /geometría válida/i);
 });

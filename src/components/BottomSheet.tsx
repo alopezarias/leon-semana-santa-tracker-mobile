@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import ProcessionSheetItem from './ProcessionSheetItem';
 import ProcessionDetailSheet from './ProcessionDetailSheet';
-import type { HomeUxMode, ProcessionDetailSheetData, ProcessionSheetItem as ProcessionSheetItemModel, QuickFilterKey, SheetSnap, Theme } from '../types/procession';
+import type { AvoidZone, HomeUxMode, ProcessionDetailSheetData, ProcessionSheetItem as ProcessionSheetItemModel, QuickFilterKey, SheetSnap, Theme } from '../types/procession';
 
 interface AvailableDay {
   date: string;
@@ -24,6 +24,9 @@ interface BottomSheetProps {
   onSelectProcession: (processionId: string) => void;
   detailSheetData?: ProcessionDetailSheetData | null;
   onViewRoute?: () => void;
+  onAvoidZone?: () => void;
+  avoidZone?: AvoidZone | null;
+  onClearAvoidZone?: () => void;
   theme: Theme;
   uxMode: HomeUxMode;
   snap: SheetSnap;
@@ -85,6 +88,9 @@ export default function BottomSheet({
   onSelectProcession,
   detailSheetData,
   onViewRoute,
+  onAvoidZone,
+  avoidZone,
+  onClearAvoidZone,
   theme,
   uxMode,
   snap,
@@ -179,6 +185,24 @@ export default function BottomSheet({
 
         {uxMode !== 'DETAIL' && snap !== 'collapsed' && availableDays.length > 0 ? (
           <>
+            {avoidZone ? (
+              <div className={`mb-3 flex flex-wrap items-center justify-between gap-3 rounded-[20px] border px-4 py-3 ${isDark ? 'border-amber-400/20 bg-amber-400/10 text-amber-100' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+                <div>
+                  <p className="text-sm font-semibold">Evitar zona activo</p>
+                  <p className={`mt-1 text-xs ${isDark ? 'text-amber-100/80' : 'text-amber-800'}`}>
+                    Ocultando temporalmente el entorno de {avoidZone.label}.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onClearAvoidZone}
+                  className={`min-h-11 rounded-full px-4 text-sm font-medium ${isDark ? 'bg-white/10 text-white' : 'bg-white text-slate-900'}`}
+                >
+                  Quitar
+                </button>
+              </div>
+            ) : null}
+
             <div className="hide-scrollbar -mx-1 mb-3 flex gap-2 overflow-x-auto px-1 pb-1">
               {availableDays.map((day) => {
                 const isSelected = selectedDay === day.date;
@@ -242,6 +266,7 @@ export default function BottomSheet({
               detail={detailSheetData}
               theme={theme}
               onViewRoute={onViewRoute}
+              onAvoidZone={onAvoidZone}
             />
           ) : items.length ? items.map((item) => (
             <ProcessionSheetItem

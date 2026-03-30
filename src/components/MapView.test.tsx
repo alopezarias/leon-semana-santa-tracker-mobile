@@ -4,7 +4,7 @@ import test from 'node:test';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { JSDOM } from 'jsdom';
 import type { LeafletBindings } from './MapView';
-import type { HomePresentation, Procession } from '../types/procession';
+import type { AvoidZone, HomePresentation, Procession } from '../types/procession';
 
 const require = createRequire(import.meta.url);
 
@@ -104,6 +104,14 @@ const buildLeafletBindings = () => {
         data-path-options={JSON.stringify(pathOptions ?? {})}
       />
     ),
+    Circle: ({ center, radius, pathOptions }) => (
+      <div
+        data-testid="mock-circle"
+        data-center={JSON.stringify(center)}
+        data-radius={String(radius ?? '')}
+        data-path-options={JSON.stringify(pathOptions ?? {})}
+      />
+    ),
     useMap: () => map,
     useMapEvents: (handlers) => {
       mapHandlers = handlers;
@@ -119,14 +127,16 @@ const buildLeafletBindings = () => {
 const renderMapView = ({
   processions,
   presentation = defaultPresentation,
-  selectedProcession = null,
-  currentTime = defaultTime,
+    selectedProcession = null,
+    avoidZone = null,
+    currentTime = defaultTime,
   onMapBackgroundTap = () => {},
   onSelectProcession = () => {},
 }: {
   processions: Procession[];
   presentation?: HomePresentation;
   selectedProcession?: Procession | null;
+  avoidZone?: AvoidZone | null;
   currentTime?: Date;
   onMapBackgroundTap?: () => void;
   onSelectProcession?: (processionId: string) => void;
@@ -137,10 +147,11 @@ const renderMapView = ({
   const view = render(
     <MapViewWithBindings
       processions={processions}
-      presentation={presentation}
-      selectedProcession={selectedProcession}
-      userLocation={null}
-      locateRequestId={0}
+        presentation={presentation}
+        selectedProcession={selectedProcession}
+        userLocation={null}
+        avoidZone={avoidZone}
+        locateRequestId={0}
       theme="light"
       currentTime={currentTime}
       viewportPaddingTop={112}
@@ -321,6 +332,27 @@ test('renderiza hecho/pendiente para la seleccionada activa y cae a highlight si
       { color: '#0f172a', weight: '12', opacity: '0.26' },
       { color: '#8b5cf6', weight: '8', opacity: '0.98' },
     ]);
+  } finally {
+    teardownDom(dom);
+  }
+});
+
+test('renderiza un anillo de avoid-zone sin romper la selección del mapa', () => {
+  const dom = setupDom();
+
+  try {
+    const view = renderMapView({
+      processions: [baseProcession()],
+      avoidZone: {
+        processionId: 'proc-1',
+        center: [42.595, -5.565],
+        radiusMeters: 220,
+        label: 'Procesión 1',
+      },
+    });
+
+    assert.equal(view.getByTestId('mock-circle').getAttribute('data-radius'), '220');
+    fireEvent.click(view.getAllByTestId('mock-polyline')[0]);
   } finally {
     teardownDom(dom);
   }

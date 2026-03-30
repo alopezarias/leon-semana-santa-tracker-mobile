@@ -2,6 +2,7 @@ import rawProcessions from '../../processions.json';
 import rawGeometry from '../../route-geometry.json';
 import rawOverrides from '../../route-overrides.json';
 import type {
+  AvoidZone,
   LatLngTuple,
   MatchInfo,
   ProcessionDetailSheetData,
@@ -96,6 +97,13 @@ const MATCH_ALIASES: Record<string, string> = {
 const geometryItems = ((rawGeometry as unknown) as { items: Record<string, RawGeometryItem> }).items;
 const overrideItems = ((rawOverrides as unknown) as { items: Record<string, RawGeometryItem> }).items;
 const currentYear = new Date().getFullYear();
+const AVOID_ZONE_RADIUS_METERS = 220;
+
+const nearbyStatusPriority: Record<ProcessionStatus, number> = {
+  active: 0,
+  upcoming: 1,
+  finished: 2,
+};
 
 export const normalizeText = (value: string) => value
   .toLowerCase()
@@ -149,10 +157,7 @@ const haversineMeters = ([lat1, lng1]: LatLngTuple, [lat2, lng2]: LatLngTuple) =
 };
 
 const getNearestProcessionDistance = (procession: Procession, userLocation: LatLngTuple) => {
-  const geometryPoints = [
-    ...(procession.geometry?.path ?? []),
-    ...(procession.geometry?.markers.map((marker) => marker.point) ?? []),
-  ];
+  const geometryPoints = getProcessionGeometryPoints(procession);
 
   if (!geometryPoints.length) {
     return null;
@@ -162,6 +167,48 @@ const getNearestProcessionDistance = (procession: Procession, userLocation: LatL
     const pointDistance = haversineMeters(userLocation, point);
     return Math.min(closestDistance, pointDistance);
   }, Number.POSITIVE_INFINITY);
+};
+
+const getProcessionGeometryPoints = (procession: Procession) => {
+  const geometryPoints = [
+    ...(procession.geometry?.path ?? []),
+    ...(procession.geometry?.markers.map((marker) => marker.point) ?? []),
+  ];
+
+  return geometryPoints;
+};
+
+export const createAvoidZoneFromProcession = (procession: Procession): AvoidZone | null => {
+  const points = getProcessionGeometryPoints(procession);
+
+  if (!points.length) {
+    return null;
+  }
+
+  const [latSum, lngSum] = points.reduce(
+    (totals, [lat, lng]) => [totals[0] + lat, totals[1] + lng],
+    [0, 0],
+  );
+
+  return {
+    processionId: procession.id,
+    center: [latSum / points.length, lngSum / points.length],
+    radiusMeters: AVOID_ZONE_RADIUS_METERS,
+    label: procession.title,
+  };
+};
+
+export const isProcessionInsideAvoidZone = (procession: Procession, avoidZone: AvoidZone | null) => {
+  if (!avoidZone) {
+    return false;
+  }
+
+  const points = getProcessionGeometryPoints(procession);
+  if (!points.length) {
+    return false;
+  }
+
+  return points.some((point) => haversineMeters(point, avoidZone.center) <= avoidZone.radiusMeters);
 };
 
 const estimateEndTime = (item: RawProcession, geometry: RouteGeometry | null) => {
@@ -434,10 +481,23 @@ export const getQuickFilterProcessions = ({
   const nearbyItems = items
     .map((procession) => ({
       procession,
+      status: getProcessionStatus(procession, currentTime),
       distanceMeters: getNearestProcessionDistance(procession, userLocation),
     }))
     .filter((item) => item.distanceMeters !== null)
-    .sort((left, right) => left.distanceMeters - right.distanceMeters);
+    .sort((left, right) => {
+      const distanceDiff = left.distanceMeters - right.distanceMeters;
+      if (Math.abs(distanceDiff) > 50) {
+        return distanceDiff;
+      }
+
+      const statusDiff = nearbyStatusPriority[left.status] - nearbyStatusPriority[right.status];
+      if (statusDiff !== 0) {
+        return statusDiff;
+      }
+
+      return left.procession.title.localeCompare(right.procession.title);
+    });
 
   return {
     items: nearbyItems.map(({ procession }) => procession),
@@ -452,6 +512,7 @@ export const getVisibleProcessions = ({
   currentTime,
   today,
   userLocation,
+  avoidZone,
 }: {
   items: Procession[];
   query: SearchQuery;
@@ -459,6 +520,7 @@ export const getVisibleProcessions = ({
   currentTime: Date;
   today: string;
   userLocation: LatLngTuple | null;
+  avoidZone?: AvoidZone | null;
 }) => {
   const searchedItems = items.filter((procession) => matchesProcessionSearch(procession, query));
   const { items: filteredItems, fallbackReason } = getQuickFilterProcessions({
@@ -470,7 +532,9 @@ export const getVisibleProcessions = ({
   });
 
   return {
-    items: filteredItems,
+    items: avoidZone
+      ? filteredItems.filter((procession) => !isProcessionInsideAvoidZone(procession, avoidZone))
+      : filteredItems,
     fallbackReason,
   };
 };
@@ -747,6 +811,10 @@ export const getProcessionDetailSheetData = (
     routeAvailability,
     routeAvailabilityLabel: ROUTE_AVAILABILITY_LABELS[routeAvailability],
     routeFallbackText: ROUTE_FALLBACK_TEXT[routeAvailability],
+    canAvoidZone: procession.hasGeometry,
+    avoidZoneReason: procession.hasGeometry
+      ? 'Oculta temporalmente esta zona en tu vista local. No recalcula rutas.'
+      : 'Evitar zona solo está disponible cuando la procesión tiene geometría válida.',
   };
 };
 

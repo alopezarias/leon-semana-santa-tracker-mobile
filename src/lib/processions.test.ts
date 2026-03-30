@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  createAvoidZoneFromProcession,
   getEstimatedRouteSegments,
   getDefaultSelectedProcessionId,
   getProcessionDetailSheetData,
@@ -8,6 +9,7 @@ import {
   getProcessionSheetItems,
   getQuickFilterProcessions,
   getVisibleProcessions,
+  isProcessionInsideAvoidZone,
   matchesProcessionSearch,
   sanitizeExternalUrl,
 } from './processions';
@@ -38,6 +40,23 @@ const baseProcession = (overrides: Partial<Procession>): Procession => ({
   hasGeometry: true,
   matching: { strategy: 'exact', confidence: 1, matchedKey: 'proc-1' },
   ...overrides,
+});
+
+test('crea avoid-zone local reversible desde una procesión con geometría', () => {
+  const avoidZone = createAvoidZoneFromProcession(baseProcession({ title: 'Nazareno' }));
+
+  assert.notEqual(avoidZone, null);
+  assert.equal(avoidZone?.processionId, 'proc-1');
+  assert.equal(avoidZone?.label, 'Nazareno');
+  assert.equal(avoidZone?.radiusMeters, 220);
+});
+
+test('avoid-zone degrada seguro y no excluye sin geometría válida', () => {
+  const withoutGeometry = baseProcession({ id: 'no-geometry', hasGeometry: false, geometry: null });
+  const avoidZone = createAvoidZoneFromProcession(withoutGeometry);
+
+  assert.equal(avoidZone, null);
+  assert.equal(isProcessionInsideAvoidZone(withoutGeometry, avoidZone), false);
 });
 
 test('prioriza activas y próximas con geometría en el sheet', () => {
@@ -223,6 +242,46 @@ test('cerca ordena por distancia cuando hay ubicación', () => {
   assert.equal((distanceMap.get('near') ?? Infinity) < (distanceMap.get('far') ?? 0), true);
 });
 
+test('cerca prioriza activas sobre finalizadas cuando la distancia es prácticamente equivalente', () => {
+  const result = getQuickFilterProcessions({
+    items: [
+      baseProcession({
+        id: 'finished',
+        title: 'Finalizada',
+        startTime: '10:00',
+        endTime: '11:00',
+        geometry: { matchedKey: 'finished', source: 'geometry', path: [[42.6001, -5.5601]], markers: [] },
+      }),
+      baseProcession({
+        id: 'active',
+        title: 'Activa',
+        startTime: '18:00',
+        endTime: '21:00',
+        geometry: { matchedKey: 'active', source: 'geometry', path: [[42.60015, -5.5601]], markers: [] },
+      }),
+    ],
+    quickFilter: 'nearby',
+    currentTime: new Date('2026-03-28T19:00:00'),
+    today: '2026-03-28',
+    userLocation: [42.6, -5.56],
+  });
+
+  assert.deepEqual(result.items.map((item) => item.id), ['active', 'finished']);
+});
+
+test('cerca devuelve vacío confiable cuando no hay geometría elegible', () => {
+  const result = getQuickFilterProcessions({
+    items: [baseProcession({ id: 'no-geometry', hasGeometry: false, geometry: null })],
+    quickFilter: 'nearby',
+    currentTime: new Date('2026-03-28T19:00:00'),
+    today: '2026-03-28',
+    userLocation: [42.6, -5.56],
+  });
+
+  assert.deepEqual(result.items, []);
+  assert.match(result.fallbackReason ?? '', /geometría suficiente/i);
+});
+
 test('detail sheet prioriza mapa oficial y sanea URLs externas', () => {
   const detail = getProcessionDetailSheetData(
     baseProcession({
@@ -237,6 +296,8 @@ test('detail sheet prioriza mapa oficial y sanea URLs externas', () => {
   assert.equal(detail.officialMapUrl, 'https://oficial.example/recorrido');
   assert.equal(sanitizeExternalUrl('https://oficial.example/recorrido'), 'https://oficial.example/recorrido');
   assert.equal(sanitizeExternalUrl('javascript:alert(1)'), null);
+  assert.equal(detail.canAvoidZone, true);
+  assert.match(detail.avoidZoneReason, /oculta temporalmente/i);
 });
 
 test('detail sheet cae a itinerario oficial cuando no hay mapa válido', () => {
@@ -285,4 +346,6 @@ test('detail sheet muestra fallback explícito cuando no hay datos oficiales de 
   assert.equal(detail.routeAvailability, 'unavailable');
   assert.match(detail.routeAvailabilityLabel, /no disponible/i);
   assert.match(detail.description, /descripción oficial pendiente/i);
+  assert.equal(detail.canAvoidZone, false);
+  assert.match(detail.avoidZoneReason, /solo está disponible/i);
 });

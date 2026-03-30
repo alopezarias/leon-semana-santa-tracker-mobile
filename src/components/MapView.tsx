@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useRef, type Key } from 'react';
-import { CircleMarker, MapContainer, Polyline, TileLayer, useMap, useMapEvents } from 'react-leaflet';
+import { Circle, CircleMarker, MapContainer, Polyline, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import type { LatLngBoundsExpression, LatLngExpression } from 'leaflet';
 import type { ComponentType, ReactNode } from 'react';
 import { differenceInSeconds } from 'date-fns';
 import { getLocateMePanOffset, getVisibleMapProcessions, type MapDisplayMode } from '../lib/map-view-state';
 import { getEstimatedRouteSegments, getInterpolatedPosition, getProcessionStatus, getRouteBounds } from '../lib/processions';
-import type { HomePresentation, Procession, Theme } from '../types/procession';
+import type { AvoidZone, HomePresentation, Procession, Theme } from '../types/procession';
 
 export interface MapViewProps {
   processions: Procession[];
   presentation: HomePresentation;
   selectedProcession: Procession | null;
   userLocation: [number, number] | null;
+  avoidZone?: AvoidZone | null;
   locateRequestId: number;
   theme: Theme;
   currentTime: Date;
@@ -23,6 +24,7 @@ export interface MapViewProps {
 
 export interface LeafletBindings {
   CircleMarker: ComponentType<Record<string, unknown>>;
+  Circle: ComponentType<Record<string, unknown>>;
   MapContainer: ComponentType<Record<string, unknown> & { children?: ReactNode }>;
   Polyline: ComponentType<Record<string, unknown>>;
   TileLayer: ComponentType<Record<string, unknown>>;
@@ -51,6 +53,7 @@ const TILE_LAYERS = {
 
 const defaultLeafletBindings: LeafletBindings = {
   CircleMarker: CircleMarker as unknown as LeafletBindings['CircleMarker'],
+  Circle: Circle as unknown as LeafletBindings['Circle'],
   MapContainer: MapContainer as unknown as LeafletBindings['MapContainer'],
   Polyline: Polyline as unknown as LeafletBindings['Polyline'],
   TileLayer: TileLayer as unknown as LeafletBindings['TileLayer'],
@@ -247,6 +250,7 @@ export function MapViewWithBindings({
   presentation,
   selectedProcession,
   userLocation,
+  avoidZone,
   locateRequestId,
   theme,
   currentTime,
@@ -257,6 +261,7 @@ export function MapViewWithBindings({
   leaflet = defaultLeafletBindings,
 }: MapViewProps & { leaflet?: LeafletBindings }) {
   const {
+    Circle: LeafletCircle,
     CircleMarker: LeafletCircleMarker,
     MapContainer: LeafletMapContainer,
     TileLayer: LeafletTileLayer,
@@ -289,6 +294,21 @@ export function MapViewWithBindings({
           viewportPaddingBottom={viewportPaddingBottom}
           leaflet={leaflet}
         />
+
+        {avoidZone ? (
+          <LeafletCircle
+            center={avoidZone.center}
+            radius={avoidZone.radiusMeters}
+            pathOptions={{
+              color: theme === 'dark' ? '#f59e0b' : '#d97706',
+              weight: 2,
+              opacity: 0.85,
+              fillColor: theme === 'dark' ? '#f59e0b' : '#fbbf24',
+              fillOpacity: theme === 'dark' ? 0.1 : 0.16,
+              dashArray: '8 8',
+            }}
+          />
+        ) : null}
 
         {visibleProcessions.map((procession) => (
           <ProcessionRoute

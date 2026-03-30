@@ -18,18 +18,21 @@ import {
   transitionHomeUxState,
 } from './lib/home-ux-state';
 import {
+  createAvoidZoneFromProcession,
   getProcessionDetailSheetData,
   getQuickFilterDistanceMap,
   getProcessionSheetItems,
   getVisibleProcessions,
   processions,
 } from './lib/processions';
-import type { HomeUxState, Procession, QuickFilterKey, SearchQuery, SheetSnap, Theme } from './types/procession';
+import type { AvoidZone, HomeUxState, Procession, QuickFilterKey, SearchQuery, SheetSnap, Theme } from './types/procession';
 
 interface ToastState {
   tone: 'success' | 'error';
   message: string;
 }
+
+type NearbyState = 'idle' | 'locating' | 'ready' | 'permission-denied' | 'unavailable' | 'empty';
 
 const LOCATION_TIMEOUT_MS = 10000;
 
@@ -118,6 +121,8 @@ export function AppShell({
   const [quickFilter, setQuickFilter] = useState<QuickFilterKey | null>(null);
   const [quickFilterMessage, setQuickFilterMessage] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [avoidZone, setAvoidZone] = useState<AvoidZone | null>(null);
+  const [nearbyState, setNearbyState] = useState<NearbyState>('idle');
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 10000);
@@ -182,6 +187,16 @@ export function AppShell({
     return selectedDayProcessions;
   }, [processionsData, quickFilter, selectedDayProcessions]);
 
+  const visibleProcessionsBeforeAvoid = useMemo(() => getVisibleProcessions({
+    items: baseDiscoveryProcessions,
+    query: searchQuery,
+    quickFilter,
+    currentTime,
+    today: todayStr,
+    userLocation,
+    avoidZone: null,
+  }), [baseDiscoveryProcessions, currentTime, quickFilter, searchQuery, todayStr, userLocation]);
+
   const visibleProcessionsResult = useMemo(() => getVisibleProcessions({
     items: baseDiscoveryProcessions,
     query: searchQuery,
@@ -189,7 +204,8 @@ export function AppShell({
     currentTime,
     today: todayStr,
     userLocation,
-  }), [baseDiscoveryProcessions, currentTime, quickFilter, searchQuery, todayStr, userLocation]);
+    avoidZone,
+  }), [avoidZone, baseDiscoveryProcessions, currentTime, quickFilter, searchQuery, todayStr, userLocation]);
 
   const visibleProcessions = visibleProcessionsResult.items;
   const hasDiscoveryContext = getHasDiscoveryContext({
@@ -213,8 +229,52 @@ export function AppShell({
   }, [hasDiscoveryContext, visibleProcessions]);
 
   useEffect(() => {
+    if (quickFilter !== 'nearby') {
+      if (nearbyState !== 'idle') {
+        setNearbyState('idle');
+      }
+      return;
+    }
+
+    if (nearbyState === 'locating') {
+      setQuickFilterMessage('Buscando tu ubicación para encontrar recorridos cercanos…');
+      return;
+    }
+
+    if (nearbyState === 'permission-denied') {
+      setQuickFilterMessage('No pudimos usar tu ubicación. Revisa el permiso para activar Cerca de mí.');
+      return;
+    }
+
+    if (nearbyState === 'unavailable') {
+      setQuickFilterMessage('Tu ubicación no está disponible ahora mismo. Mostramos la vista habitual mientras vuelve.');
+      return;
+    }
+
+    if (userLocation && visibleProcessionsResult.items.length === 0) {
+      if (nearbyState !== 'empty') {
+        setNearbyState('empty');
+      }
+      setQuickFilterMessage('No encontramos recorridos válidos cerca de ti ahora mismo.');
+      return;
+    }
+
+    if (userLocation && visibleProcessionsResult.items.length > 0) {
+      if (nearbyState !== 'ready') {
+        setNearbyState('ready');
+      }
+      setQuickFilterMessage('Ordenadas por cercanía con recorridos disponibles.');
+      return;
+    }
+
     setQuickFilterMessage(visibleProcessionsResult.fallbackReason);
-  }, [visibleProcessionsResult.fallbackReason]);
+  }, [nearbyState, quickFilter, userLocation, visibleProcessionsResult.fallbackReason, visibleProcessionsResult.items.length]);
+
+  useEffect(() => {
+    if (avoidZone && !visibleProcessionsBeforeAvoid.items.some((procession) => procession.id === avoidZone.processionId)) {
+      setAvoidZone(null);
+    }
+  }, [avoidZone, visibleProcessionsBeforeAvoid.items]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -266,7 +326,11 @@ export function AppShell({
   const handleLocationSuccess = (position: [number, number], purpose: 'map' | 'nearby' = 'map') => {
     setUserLocation(position);
     setLocateRequestId((current) => current + 1);
-    setQuickFilterMessage(null);
+    if (purpose === 'nearby') {
+      setNearbyState('ready');
+    } else {
+      setQuickFilterMessage(null);
+    }
     setToast({ tone: 'success', message: purpose === 'nearby' ? 'Mostrando las procesiones más cercanas.' : 'Ubicación centrada en el mapa.' });
     setHomeUxState((current) => transitionHomeUxState(current, { type: 'requestSheetSnap', snap: 'collapsed' }));
     setIsLocating(false);
@@ -281,14 +345,16 @@ export function AppShell({
         : 'No se pudo obtener tu ubicación en este momento.',
     });
     if (purpose === 'nearby') {
-      setQuickFilter(null);
-      setQuickFilterMessage('Activa tu ubicación para usar el filtro Cerca.');
+      setNearbyState(isPermissionDeniedError(error) ? 'permission-denied' : 'unavailable');
     }
     setIsLocating(false);
   };
 
   const handleLocateMe = (purpose: 'map' | 'nearby' = 'map') => {
     setIsLocating(true);
+    if (purpose === 'nearby') {
+      setNearbyState('locating');
+    }
 
     if (Capacitor.isNativePlatform()) {
       void getCurrentNativeLocation()
@@ -300,8 +366,7 @@ export function AppShell({
     if (!('geolocation' in navigator)) {
       setToast({ tone: 'error', message: 'Tu dispositivo no soporta geolocalización.' });
       if (purpose === 'nearby') {
-        setQuickFilter(null);
-        setQuickFilterMessage('Tu dispositivo no permite calcular cercanía ahora mismo.');
+        setNearbyState('unavailable');
       }
       setIsLocating(false);
       return;
@@ -332,12 +397,14 @@ export function AppShell({
     if (quickFilter === filter) {
       setQuickFilter(null);
       setQuickFilterMessage(null);
+      if (filter === 'nearby') {
+        setNearbyState('idle');
+      }
       return;
     }
 
     if (filter === 'nearby' && !userLocation) {
       setQuickFilter('nearby');
-      setQuickFilterMessage('Buscando tu ubicación para ordenar por cercanía…');
       setHomeUxState((current) => current.mode === 'IDLE'
         ? transitionHomeUxState(current, { type: 'openList', snap: 'mid' })
         : current);
@@ -347,6 +414,7 @@ export function AppShell({
 
     setQuickFilter(filter);
     setQuickFilterMessage(null);
+    setNearbyState(filter === 'nearby' ? 'ready' : 'idle');
     setHomeUxState((current) => current.mode === 'IDLE'
       ? transitionHomeUxState(current, { type: 'openList', snap: 'mid' })
       : current);
@@ -356,6 +424,28 @@ export function AppShell({
     setSearchQuery('');
     setQuickFilter(null);
     setQuickFilterMessage(null);
+    setNearbyState('idle');
+  };
+
+  const handleActivateAvoidZone = () => {
+    if (!selectedProcession) {
+      return;
+    }
+
+    const nextAvoidZone = createAvoidZoneFromProcession(selectedProcession);
+    if (!nextAvoidZone) {
+      setToast({ tone: 'error', message: 'Esta procesión no tiene recorrido suficiente para evitar su zona.' });
+      return;
+    }
+
+    setAvoidZone(nextAvoidZone);
+    setToast({ tone: 'success', message: `Zona evitada temporalmente: ${selectedProcession.title}.` });
+    setHomeUxState({ mode: 'LIST', snap: 'mid' });
+  };
+
+  const handleClearAvoidZone = () => {
+    setAvoidZone(null);
+    setToast({ tone: 'success', message: 'Zona evitada eliminada.' });
   };
 
   const handleMapBackgroundTap = () => {
@@ -404,6 +494,7 @@ export function AppShell({
         presentation={homePresentation}
         selectedProcession={selectedMapProcession}
         userLocation={userLocation}
+        avoidZone={avoidZone}
         locateRequestId={locateRequestId}
         theme={theme}
         currentTime={currentTime}
@@ -448,6 +539,9 @@ export function AppShell({
         onSelectProcession={handleSelectProcession}
         detailSheetData={detailSheetData}
         onViewRoute={handleViewRoute}
+        onAvoidZone={handleActivateAvoidZone}
+        avoidZone={avoidZone}
+        onClearAvoidZone={handleClearAvoidZone}
         theme={theme}
         uxMode={homePresentation.uxMode}
         snap={sheetSnap}
